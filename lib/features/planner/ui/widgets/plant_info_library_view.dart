@@ -1,0 +1,784 @@
+import 'package:flutter/material.dart';
+
+import 'package:garden_planner/core/models/crop_spacing.dart';
+import 'package:garden_planner/core/models/plant_profile_data.dart';
+import 'package:garden_planner/core/plant_icons/generated_plant_icon.dart';
+import 'package:garden_planner/core/plant_icons/generated_plant_svgs.dart';
+import 'package:garden_planner/features/planner/services/planting_selection_bridge.dart';
+
+class PlantInfoLibraryView extends StatefulWidget {
+  const PlantInfoLibraryView({super.key, this.onPlantChosen});
+
+  final ValueChanged<String>? onPlantChosen;
+
+  @override
+  State<PlantInfoLibraryView> createState() => _PlantInfoLibraryViewState();
+}
+
+class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
+  String _query = '';
+  String _category = 'All';
+  String _filter = 'All';
+
+  late final List<_PlantEntry> _plants =
+      generatedPlantSvgs.keys.map(_entryFromKey).toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+
+  final List<String> _categories = const [
+    'All',
+    'Vegetables',
+    'Herbs',
+    'Fruit',
+    'Trees',
+    'Flowers',
+  ];
+
+  final List<String> _filters = const [
+    'All',
+    'Recommended',
+    'Spacing',
+    'Containers',
+    'Sow depth',
+    'Warnings',
+  ];
+
+  List<_PlantEntry> get _visiblePlants {
+    final q = _query.trim().toLowerCase();
+
+    return _plants.where((plant) {
+      final profile = PlantProfileData.forCrop(plant.name);
+      final spacing = CropSpacing.spacingLabelForCrop(plant.name);
+
+      final matchesQuery =
+          q.isEmpty ||
+          plant.name.toLowerCase().contains(q) ||
+          plant.key.toLowerCase().contains(q) ||
+          plant.category.toLowerCase().contains(q);
+
+      final matchesCategory = _category == 'All' || plant.category == _category;
+
+      final matchesFilter = switch (_filter) {
+        'All' => true,
+        'Recommended' => profile.recommendedLayout.trim().isNotEmpty,
+        'Spacing' => spacing.trim().isNotEmpty,
+        'Containers' => profile.container.trim().isNotEmpty,
+        'Sow depth' => profile.sowDepth.trim().isNotEmpty,
+        'Warnings' => profile.warnings.isNotEmpty,
+        _ => true,
+      };
+
+      return matchesQuery && matchesCategory && matchesFilter;
+    }).toList();
+  }
+
+  _PlantEntry _entryFromKey(String key) {
+    final lower = key.toLowerCase();
+    final name = _titleCase(key.replaceAll('_', ' '));
+
+    const herbs = {
+      'basil',
+      'bay_leaf',
+      'chamomile',
+      'chives',
+      'cilantro',
+      'dill',
+      'fennel',
+      'lavender',
+      'lemongrass',
+      'mint',
+      'oregano',
+      'parsley',
+      'rosemary',
+      'sage',
+      'tarragon',
+      'thyme',
+    };
+
+    const fruitWords = [
+      'apple',
+      'avocado',
+      'banana',
+      'blueberry',
+      'cherry',
+      'coconut',
+      'fig',
+      'grape',
+      'lemon',
+      'mango',
+      'orange',
+      'peach',
+      'pear',
+      'pomegranate',
+      'raspberry',
+      'strawberry',
+      'tomato',
+      'pepper',
+      'cucumber',
+      'pumpkin',
+      'zucchini',
+    ];
+
+    const treeWords = [
+      'tree',
+      'birch',
+      'bonsai',
+      'magnolia',
+      'maple',
+      'oak',
+      'palm',
+      'pine',
+      'willow',
+      'bamboo',
+    ];
+
+    const flowerWords = ['blossom', 'lavender', 'chamomile'];
+
+    final category = herbs.contains(lower)
+        ? 'Herbs'
+        : fruitWords.any(lower.contains)
+        ? 'Fruit'
+        : treeWords.any(lower.contains)
+        ? 'Trees'
+        : flowerWords.any(lower.contains)
+        ? 'Flowers'
+        : 'Vegetables';
+
+    return _PlantEntry(key: key, name: name, category: category);
+  }
+
+  String _titleCase(String value) {
+    return value
+        .split(RegExp(r'\s+'))
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) {
+          if (part.length == 1) return part.toUpperCase();
+          return part[0].toUpperCase() + part.substring(1).toLowerCase();
+        })
+        .join(' ');
+  }
+
+  void _usePlant(_PlantEntry plant) {
+    final cropName = plant.name.trim().isEmpty ? plant.key : plant.name;
+
+    if (widget.onPlantChosen != null) {
+      widget.onPlantChosen!(cropName);
+      return;
+    }
+
+    PlantingSelectionBridge.selectPlant(cropName);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$cropName selected. Open the planner/map to place it.'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _openPlantDetails(_PlantEntry plant) {
+    final profile = PlantProfileData.forCrop(plant.name);
+    final spacing = CropSpacing.spacingLabelForCrop(plant.name);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFFFFFBF4),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.82,
+          minChildSize: 0.42,
+          maxChildSize: 0.96,
+          builder: (context, scrollController) {
+            return ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+              children: [
+                Center(
+                  child: Container(
+                    width: 108,
+                    height: 108,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF1EAE1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: GeneratedPlantIcon(cropName: plant.key, size: 74),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  plant.name,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  plant.category,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _usePlant(plant);
+                  },
+                  icon: const Icon(Icons.add_location_alt_outlined),
+                  label: const Text('Use on map / bed'),
+                ),
+                const SizedBox(height: 16),
+                _InfoSection(
+                  title: 'Growing details',
+                  children: [
+                    _InfoRow(label: 'Spacing', value: spacing),
+                    _InfoRow(label: 'Layout', value: profile.recommendedLayout),
+                    _InfoRow(label: 'Sow depth', value: profile.sowDepth),
+                    _InfoRow(label: 'Sun', value: profile.sun),
+                    _InfoRow(label: 'Water', value: profile.water),
+                    _InfoRow(label: 'Soil', value: profile.soil),
+                    _InfoRow(label: 'Rotation', value: profile.rotationFamily),
+                    _InfoRow(label: 'Succession', value: profile.succession),
+                    _InfoRow(label: 'Frost', value: profile.frost),
+                    _InfoRow(label: 'Container', value: profile.container),
+                    _InfoRow(label: 'Support', value: profile.support),
+                    _InfoRow(label: 'Planner use', value: profile.plannerUse),
+                    if (profile.warnings.isNotEmpty)
+                      _InfoRow(
+                        label: 'Warnings',
+                        value: profile.warnings.join('\n'),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = _visiblePlants;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
+    return Material(
+      color: const Color(0xFFFFF7EF),
+      child: SafeArea(
+        child: CustomScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                child: _HeaderCard(
+                  visibleCount: visible.length,
+                  totalCount: _plants.length,
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search plants',
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _query = value;
+                    });
+                  },
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _ChipScroller(
+                label: 'Category',
+                values: _categories,
+                selected: _category,
+                onSelected: (value) {
+                  setState(() {
+                    _category = value;
+                  });
+                },
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _ChipScroller(
+                label: 'Filter',
+                values: _filters,
+                selected: _filter,
+                onSelected: (value) {
+                  setState(() {
+                    _filter = value;
+                  });
+                },
+              ),
+            ),
+            if (visible.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'No plants match the current filters.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + bottomInset),
+                sliver: SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.crossAxisExtent;
+
+                    if (width < 430) {
+                      return SliverList.separated(
+                        itemCount: visible.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final plant = visible[index];
+
+                          return _PlantListCard(
+                            plant: plant,
+                            onTap: () => _openPlantDetails(plant),
+                            onUse: () => _usePlant(plant),
+                          );
+                        },
+                      );
+                    }
+
+                    final columns = width >= 900
+                        ? 4
+                        : width >= 680
+                        ? 3
+                        : 2;
+
+                    return SliverGrid(
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final plant = visible[index];
+
+                        return _PlantGridCard(
+                          plant: plant,
+                          onTap: () => _openPlantDetails(plant),
+                          onUse: () => _usePlant(plant),
+                        );
+                      }, childCount: visible.length),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        mainAxisExtent: 244,
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlantEntry {
+  const _PlantEntry({
+    required this.key,
+    required this.name,
+    required this.category,
+  });
+
+  final String key;
+  final String name;
+  final String category;
+}
+
+class _HeaderCard extends StatelessWidget {
+  const _HeaderCard({required this.visibleCount, required this.totalCount});
+
+  final int visibleCount;
+  final int totalCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: const Color(0xFFE9E0EA),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 24,
+              backgroundColor: Color(0xFFDCEFE0),
+              child: Icon(Icons.eco, color: Color(0xFF2E7D32)),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Plant Info',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$visibleCount shown • $totalCount plants',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+                  const Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _SmallChip(label: 'Mobile'),
+                      _SmallChip(label: 'Search'),
+                      _SmallChip(label: 'Bottom sheet'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallChip extends StatelessWidget {
+  const _SmallChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor: Colors.white,
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+}
+
+class _ChipScroller extends StatelessWidget {
+  const _ChipScroller({
+    required this.label,
+    required this.values,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final List<String> values;
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 58,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        itemCount: values.length + 1,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Center(
+              child: Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  color: Color(0xFF6D6258),
+                ),
+              ),
+            );
+          }
+
+          final value = values[index - 1];
+
+          return ChoiceChip(
+            label: Text(value),
+            selected: selected == value,
+            onSelected: (_) => onSelected(value),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PlantListCard extends StatelessWidget {
+  const _PlantListCard({
+    required this.plant,
+    required this.onTap,
+    required this.onUse,
+  });
+
+  final _PlantEntry plant;
+  final VoidCallback onTap;
+  final VoidCallback onUse;
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = CropSpacing.spacingLabelForCrop(plant.name);
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: Color(0xFFD9CDB8)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF1EAE1),
+                  shape: BoxShape.circle,
+                ),
+                child: GeneratedPlantIcon(cropName: plant.key, size: 52),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      plant.name.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      plant.category,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      spacing,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.tonal(
+                            onPressed: onUse,
+                            child: const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('Use on map'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.outlined(
+                          onPressed: onTap,
+                          icon: const Icon(Icons.info_outline),
+                          tooltip: 'Details',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlantGridCard extends StatelessWidget {
+  const _PlantGridCard({
+    required this.plant,
+    required this.onTap,
+    required this.onUse,
+  });
+
+  final _PlantEntry plant;
+  final VoidCallback onTap;
+  final VoidCallback onUse;
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = CropSpacing.spacingLabelForCrop(plant.name);
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: Color(0xFFD9CDB8)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Container(
+                width: 74,
+                height: 74,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF1EAE1),
+                  shape: BoxShape.circle,
+                ),
+                child: GeneratedPlantIcon(cropName: plant.key, size: 50),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                plant.name.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                plant.category,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                spacing,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 11),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonal(
+                  onPressed: onUse,
+                  child: const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('Use on map'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoSection extends StatelessWidget {
+  const _InfoSection({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanValue = value.trim().isEmpty ? 'Not specified' : value.trim();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(cleanValue, style: const TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}

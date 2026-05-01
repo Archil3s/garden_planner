@@ -1,0 +1,127 @@
+﻿=== Project diagnostic ===
+ProjectPath: C:\Users\Danie\garden_planner
+CurrentLocation: C:\Users\Danie\garden_planner
+
+=== Root files and folders ===
+[DIR]  .dart_tool
+[DIR]  .idea
+[DIR]  .vscode
+[DIR]  android
+[DIR]  assets
+[DIR]  backups
+[DIR]  build
+[DIR]  copy_this_snapshot
+[DIR]  debug_output
+[DIR]  ios
+[DIR]  lib
+[DIR]  linux
+[DIR]  macos
+[DIR]  project_snapshots
+[DIR]  test
+[DIR]  web
+[DIR]  windows
+[FILE] .flutter-plugins-dependencies
+[FILE] .gitignore
+[FILE] .metadata
+[FILE] analysis_options.yaml
+[FILE] analyze_now.txt
+[FILE] dashboard_wiring_check.txt
+[FILE] devtools_options.yaml
+[FILE] flutter_01.log
+[FILE] garden_planner.iml
+[FILE] last_flutter_error.txt
+[FILE] last_flutter_error_full.txt
+[FILE] plant_icons.html
+[FILE] project_scope.txt
+[FILE] project_scope_small.txt
+[FILE] project_tree.txt
+[FILE] project-scope.txt
+[FILE] project-scope-small.txt
+[FILE] pubspec.lock
+[FILE] pubspec.yaml
+[FILE] README.md
+[FILE] run_verbose.txt
+[FILE] seedlings_overflow_repair.ps1
+
+=== Flutter roots found under this folder ===
+pubspec: C:\Users\Danie\garden_planner\pubspec.yaml
+  folder: C:\Users\Danie\garden_planner
+  has lib/: True
+  has lib/main.dart: True
+
+=== lib/ tree if present ===
+lib\app\app_routes.dart (36 lines)
+lib\app\garden_planner_app.dart (15 lines)
+lib\core\build_info.dart (5 lines)
+lib\core\models\bed.dart (290 lines)
+lib\core\models\crop_block.dart (63 lines)
+lib\core\models\crop_placement.dart (41 lines)
+lib\core\models\crop_spacing.dart (230 lines)
+lib\core\models\garden.dart (1 lines)
+lib\core\models\garden_project.dart (192 lines)
+lib\core\models\seed_catalog.dart (1197 lines)
+lib\core\models\seedling.dart (151 lines)
+lib\core\models\sow_calendar.dart (184 lines)
+lib\core\plant_icons\plant_icon_assets.dart (116 lines)
+lib\core\plant_icons\plant_svg_icon.dart (76 lines)
+lib\core\theme\garden_theme.dart (49 lines)
+lib\core\world\world_transform.dart (1 lines)
+lib\debug_entry.dart (30 lines)
+lib\features\planner\canvas\crop_pattern_painter.dart (163 lines)
+lib\features\planner\canvas\grid_painter.dart (102 lines)
+lib\features\planner\controller\garden_controller.dart (1495 lines)
+lib\features\planner\services\frost_forecast_service.dart (110 lines)
+lib\features\planner\services\project_storage_service.dart (38 lines)
+lib\features\planner\services\spray_conditions_service.dart (138 lines)
+lib\features\planner\ui\bed_card.dart (2438 lines)
+lib\features\planner\ui\garden_screen.dart (7132 lines)
+lib\features\planner\ui\widgets\action_cards.dart (194 lines)
+lib\features\planner\ui\widgets\add_bed_dialog.dart (455 lines)
+lib\features\planner\ui\widgets\bed_card.dart (296 lines)
+lib\features\planner\ui\widgets\bed_detail_sections.dart (367 lines)
+lib\features\planner\ui\widgets\bed_inspector.dart (893 lines)
+lib\features\planner\ui\widgets\crop_planning_section.dart (541 lines)
+lib\features\planner\ui\widgets\decision_banner.dart (230 lines)
+lib\features\planner\ui\widgets\draggable_bed.dart (908 lines)
+lib\features\planner\ui\widgets\draggable_crop_block.dart (1022 lines)
+lib\features\planner\ui\widgets\draggable_crop_icon.dart (171 lines)
+lib\features\planner\ui\widgets\frost_risk_widget.dart (760 lines)
+lib\features\planner\ui\widgets\live_plant_now_panel.dart (405 lines)
+lib\features\planner\ui\widgets\live_soil_temp_planting_guide.dart (715 lines)
+lib\features\planner\ui\widgets\map_view_controls.dart (193 lines)
+lib\features\planner\ui\widgets\planner_cards_view.dart (448 lines)
+lib\features\planner\ui\widgets\planner_dashboard_overview.dart (598 lines)
+lib\features\planner\ui\widgets\planner_empty_state.dart (84 lines)
+lib\features\planner\ui\widgets\planner_legend.dart (101 lines)
+lib\features\planner\ui\widgets\planner_map_view.dart (1058 lines)
+lib\features\planner\ui\widgets\planner_page_header.dart (78 lines)
+lib\features\planner\ui\widgets\planner_shortcuts.dart (93 lines)
+lib\features\planner\ui\widgets\planner_status_bar.dart (134 lines)
+lib\features\planner\ui\widgets\planner_toolbar.dart (1077 lines)
+lib\features\planner\ui\widgets\plant_picker_panel.dart (903 lines)
+lib\features\planner\ui\widgets\project_settings_dialog.dart (427 lines)
+lib\features\planner\ui\widgets\seedlings_view.dart (4149 lines)
+lib\features\planner\ui\widgets\shortcuts_help_dialog.dart (105 lines)
+lib\features\planner\ui\widgets\soil_water_demand_panel.dart (2649 lines)
+lib\features\planner\ui\widgets\spray_conditions_widget.dart (618 lines)
+lib\features\planner\ui\widgets\summary_cards.dart (164 lines)
+lib\features\planner\ui\widgets\view_options.dart (35 lines)
+lib\main.dart (19 lines)
+lib\models\bed.dart (154 lines)
+lib\models\garden_project.dart (137 lines)
+lib\models\inventory_item.dart (11 lines)
+lib\models\seedling.dart (7 lines)
+lib\screens\beds_screen.dart (42 lines)
+lib\screens\dashboard_screen.dart (65 lines)
+lib\screens\garden_map_screen.dart (304 lines)
+lib\screens\inventory_screen.dart (42 lines)
+lib\screens\project_list_screen.dart (50 lines)
+lib\screens\reports_screen.dart (12 lines)
+lib\screens\seedlings_screen.dart (1289 lines)
+lib\services\mock_data_service.dart (33 lines)
+lib\services\project_service.dart (38 lines)
+lib\utils\command_history.dart (43 lines)
+lib\widgets\app_shell.dart (52 lines)
+lib\widgets\soil_water_demand_panel.dart (443 lines)
+
+=== Dart class/widget/state summary ===

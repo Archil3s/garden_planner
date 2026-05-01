@@ -1,0 +1,176 @@
+﻿cd "C:\Users\Danie\garden_planner"
+
+$out = "FULL_PROJECT_DART_INFO_DUMP.txt"
+
+Remove-Item $out -ErrorAction SilentlyContinue
+
+function Add-Section($title) {
+  "" | Out-File $out -Append -Encoding UTF8
+  "============================================================" | Out-File $out -Append -Encoding UTF8
+  $title | Out-File $out -Append -Encoding UTF8
+  "============================================================" | Out-File $out -Append -Encoding UTF8
+  "" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "PROJECT LOCATION"
+Get-Location | Out-File $out -Append -Encoding UTF8
+
+Add-Section "DATE CREATED"
+Get-Date | Out-File $out -Append -Encoding UTF8
+
+Add-Section "PROJECT TREE - IMPORTANT FILES ONLY"
+Get-ChildItem -Recurse -File |
+  Where-Object {
+    $_.FullName -notmatch "\\build\\" -and
+    $_.FullName -notmatch "\\\.dart_tool\\" -and
+    $_.FullName -notmatch "\\\.git\\" -and
+    $_.FullName -notmatch "\\\.idea\\" -and
+    $_.FullName -notmatch "\\\.gradle\\" -and
+    $_.FullName -notmatch "\\ios\\Pods\\" -and
+    $_.FullName -notmatch "\\macos\\Flutter\\ephemeral\\" -and
+    $_.Extension -in @(
+      ".dart",
+      ".yaml",
+      ".yml",
+      ".kts",
+      ".gradle",
+      ".xml",
+      ".kt",
+      ".java",
+      ".plist",
+      ".md",
+      ".txt"
+    )
+  } |
+  Sort-Object FullName |
+  Select-Object FullName |
+  Out-String -Width 400 |
+  Out-File $out -Append -Encoding UTF8
+
+Add-Section "PUBSPEC.YAML"
+if (Test-Path "pubspec.yaml") {
+  Get-Content "pubspec.yaml" | Out-File $out -Append -Encoding UTF8
+} else {
+  "pubspec.yaml not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "ANALYSIS OPTIONS"
+if (Test-Path "analysis_options.yaml") {
+  Get-Content "analysis_options.yaml" | Out-File $out -Append -Encoding UTF8
+} else {
+  "analysis_options.yaml not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "ANDROID SETTINGS GRADLE"
+if (Test-Path "android/settings.gradle.kts") {
+  Get-Content "android/settings.gradle.kts" | Out-File $out -Append -Encoding UTF8
+}
+elseif (Test-Path "android/settings.gradle") {
+  Get-Content "android/settings.gradle" | Out-File $out -Append -Encoding UTF8
+}
+else {
+  "Android settings Gradle file not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "ANDROID ROOT BUILD GRADLE"
+if (Test-Path "android/build.gradle.kts") {
+  Get-Content "android/build.gradle.kts" | Out-File $out -Append -Encoding UTF8
+}
+elseif (Test-Path "android/build.gradle") {
+  Get-Content "android/build.gradle" | Out-File $out -Append -Encoding UTF8
+}
+else {
+  "Android root build Gradle file not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "ANDROID APP BUILD GRADLE"
+if (Test-Path "android/app/build.gradle.kts") {
+  Get-Content "android/app/build.gradle.kts" | Out-File $out -Append -Encoding UTF8
+}
+elseif (Test-Path "android/app/build.gradle") {
+  Get-Content "android/app/build.gradle" | Out-File $out -Append -Encoding UTF8
+}
+else {
+  "Android app build Gradle file not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "ANDROID MANIFEST MAIN"
+if (Test-Path "android/app/src/main/AndroidManifest.xml") {
+  Get-Content "android/app/src/main/AndroidManifest.xml" | Out-File $out -Append -Encoding UTF8
+} else {
+  "AndroidManifest.xml not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "MAIN DART ENTRYPOINT"
+if (Test-Path "lib/main.dart") {
+  $line = 0
+  Get-Content "lib/main.dart" | ForEach-Object {
+    $line++
+    "{0,5}: {1}" -f $line, $_
+  } | Out-File $out -Append -Encoding UTF8
+} else {
+  "lib/main.dart not found" | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "ALL DART FILES WITH LINE NUMBERS"
+
+$dartFiles = Get-ChildItem "lib" -Recurse -Filter "*.dart" -File |
+  Where-Object {
+    $_.FullName -notmatch "\\build\\" -and
+    $_.FullName -notmatch "\\\.dart_tool\\"
+  } |
+  Sort-Object FullName
+
+foreach ($file in $dartFiles) {
+  Add-Section "DART FILE: $($file.FullName)"
+
+  $lineNumber = 0
+  Get-Content $file.FullName | ForEach-Object {
+    $lineNumber++
+    "{0,5}: {1}" -f $lineNumber, $_
+  } | Out-File $out -Append -Encoding UTF8
+}
+
+Add-Section "DART FILE SUMMARY"
+$dartFiles |
+  Select-Object FullName, Length, LastWriteTime |
+  Format-Table -AutoSize |
+  Out-String -Width 400 |
+  Out-File $out -Append -Encoding UTF8
+
+Add-Section "DART IMPORTS SUMMARY"
+Get-ChildItem "lib" -Recurse -Filter "*.dart" -File |
+  Sort-Object FullName |
+  ForEach-Object {
+    $file = $_.FullName
+    Select-String -Path $file -Pattern "^\s*import\s+" | ForEach-Object {
+      "$file:$($_.LineNumber): $($_.Line)"
+    }
+  } | Out-File $out -Append -Encoding UTF8
+
+Add-Section "DART CLASSES / ENUMS / EXTENSIONS / MAIN FUNCTIONS"
+Get-ChildItem "lib" -Recurse -Filter "*.dart" -File |
+  Sort-Object FullName |
+  ForEach-Object {
+    $file = $_.FullName
+    Select-String -Path $file -Pattern "^\s*(class|enum|extension|mixin)\s+\w+|void\s+main\s*\(" | ForEach-Object {
+      "$file:$($_.LineNumber): $($_.Line)"
+    }
+  } | Out-File $out -Append -Encoding UTF8
+
+Add-Section "FLUTTER DOCTOR"
+flutter doctor -v 2>&1 | Out-File $out -Append -Encoding UTF8
+
+Add-Section "FLUTTER DEVICES"
+flutter devices 2>&1 | Out-File $out -Append -Encoding UTF8
+
+Add-Section "FLUTTER EMULATORS"
+flutter emulators 2>&1 | Out-File $out -Append -Encoding UTF8
+
+Add-Section "FLUTTER ANALYZE"
+flutter analyze 2>&1 | Out-File $out -Append -Encoding UTF8
+
+Add-Section "END OF DUMP"
+"Created file: $out" | Out-File $out -Append -Encoding UTF8
+
+notepad $out

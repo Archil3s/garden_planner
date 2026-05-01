@@ -1,0 +1,9 @@
+﻿analyzer:
+  exclude:
+    - backups/**
+    - debug_output/**
+    - lib/screens/**
+    - lib/models/**
+    - lib/services/**
+    - lib/utils/**
+    - test/**

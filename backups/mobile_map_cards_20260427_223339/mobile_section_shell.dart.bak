@@ -1,0 +1,782 @@
+import 'package:flutter/material.dart';
+
+import 'package:garden_planner/core/models/bed.dart';
+import 'package:garden_planner/features/planner/controller/garden_controller.dart';
+import 'package:garden_planner/features/planner/services/planting_selection_bridge.dart';
+import 'package:garden_planner/features/planner/services/project_storage_service.dart';
+import 'package:garden_planner/features/planner/ui/garden_screen.dart';
+import 'package:garden_planner/features/planner/ui/widgets/planner_map_view.dart';
+import 'package:garden_planner/features/planner/ui/widgets/plant_info_library_view.dart';
+
+class MobileSectionShell extends StatefulWidget {
+  const MobileSectionShell({super.key});
+
+  @override
+  State<MobileSectionShell> createState() => _MobileSectionShellState();
+}
+
+class _MobileSectionShellState extends State<MobileSectionShell> {
+  final GardenController controller = GardenController();
+  final ProjectStorageService storage = ProjectStorageService();
+
+  int selectedIndex = 0;
+  bool loading = true;
+  bool saving = false;
+
+  bool gridVisible = true;
+  bool labelsVisible = true;
+  bool cropRowsVisible = true;
+  bool instructionsVisible = true;
+
+  double pixelsPerMeter = 42;
+  String? selectedPlantName;
+  String statusMessage = 'Loading garden project...';
+
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(_controllerChanged);
+    _loadSavedProject();
+
+    PlantingSelectionBridge.pendingPlant.addListener(_syncPendingPlant);
+  }
+
+  @override
+  void dispose() {
+    PlantingSelectionBridge.pendingPlant.removeListener(_syncPendingPlant);
+    controller.removeListener(_controllerChanged);
+    controller.dispose();
+    super.dispose();
+  }
+
+  void _controllerChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _syncPendingPlant() {
+    final plant = PlantingSelectionBridge.pendingPlant.value;
+    if (plant == null || plant.trim().isEmpty) return;
+
+    setState(() {
+      selectedPlantName = plant.trim();
+    });
+  }
+
+  Future<void> _loadSavedProject() async {
+    try {
+      final saved = await storage.loadProject();
+
+      if (saved != null) {
+        controller.project = saved;
+        statusMessage = 'Saved project loaded.';
+      } else {
+        statusMessage = 'Demo project loaded.';
+      }
+    } catch (error) {
+      statusMessage = 'Could not load saved project. Demo project loaded.';
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      loading = false;
+    });
+  }
+
+  Future<void> _saveProject() async {
+    if (saving) return;
+
+    setState(() {
+      saving = true;
+    });
+
+    try {
+      await storage.saveProject(controller.project);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Garden map saved.')));
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Save failed: $error')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          saving = false;
+        });
+      }
+    }
+  }
+
+  void _setTab(int index) {
+    setState(() {
+      selectedIndex = index;
+    });
+  }
+
+  void _choosePlant(String cropName) {
+    final cleanName = cropName.trim();
+
+    if (cleanName.isEmpty) return;
+
+    PlantingSelectionBridge.selectPlant(cleanName);
+
+    setState(() {
+      selectedPlantName = cleanName;
+      selectedIndex = 2;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$cleanName selected. Open a bed, then add it.'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _fitMap() {
+    setState(() {
+      pixelsPerMeter = 34;
+    });
+  }
+
+  void _resetZoom() {
+    setState(() {
+      pixelsPerMeter = 42;
+    });
+  }
+
+  void _openBedDetails(Bed bed) {
+    controller.selectBed(bed.id);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFFFFFBF4),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.74,
+          minChildSize: 0.36,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+              children: [
+                Text(
+                  bed.name.trim().isEmpty ? 'Bed ${bed.number}' : bed.name,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${bed.zone} • ${bed.width.toStringAsFixed(1)}m × ${bed.height.toStringAsFixed(1)}m',
+                ),
+                const SizedBox(height: 16),
+                _BedInfoTile(
+                  icon: Icons.health_and_safety_outlined,
+                  title: 'Health',
+                  value: '${(bed.healthPercent * 100).round()}%',
+                ),
+                _BedInfoTile(
+                  icon: Icons.eco_outlined,
+                  title: 'Crops',
+                  value: bed.crops.isEmpty
+                      ? 'No crops yet'
+                      : bed.crops.join(', '),
+                ),
+                _BedInfoTile(
+                  icon: Icons.grid_view_outlined,
+                  title: 'Placed plants',
+                  value:
+                      '${bed.cropPlacements.length} icons • ${bed.cropBlocks.length} blocks',
+                ),
+                _BedInfoTile(
+                  icon: Icons.warning_amber_outlined,
+                  title: 'Issues',
+                  value: bed.issues.isEmpty
+                      ? 'No active issue records'
+                      : '${bed.issues.length} issue records',
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: selectedPlantName == null
+                      ? null
+                      : () {
+                          controller.selectBed(bed.id);
+                          controller.addCropBlockToSelectedBed(
+                            selectedPlantName!,
+                          );
+                          Navigator.of(context).pop();
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                '${selectedPlantName!} added to ${bed.name}.',
+                              ),
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.add_location_alt_outlined),
+                  label: Text(
+                    selectedPlantName == null
+                        ? 'Pick a plant first'
+                        : 'Add $selectedPlantName to this bed',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    setState(() {
+                      selectedIndex = 2;
+                    });
+                  },
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Return to map'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _addSelectedPlantToCurrentBed() {
+    final plant = selectedPlantName;
+
+    if (plant == null || plant.trim().isEmpty) {
+      setState(() {
+        selectedIndex = 1;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Pick a plant first.')));
+      return;
+    }
+
+    if (controller.selectedBedId == null) {
+      if (controller.beds.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('No beds available.')));
+        return;
+      }
+
+      controller.selectBed(controller.beds.first.id);
+    }
+
+    controller.addCropBlockToSelectedBed(plant);
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$plant added to selected bed.')));
+  }
+
+  String get _title {
+    return switch (selectedIndex) {
+      0 => 'Planner',
+      1 => 'Plants',
+      2 => 'Map',
+      3 => 'Port',
+      _ => 'Garden Planner',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      const GardenScreen(),
+      PlantInfoLibraryView(onPlantChosen: _choosePlant),
+      _buildMobileMapPage(),
+      _PortStatusPage(
+        statusMessage: statusMessage,
+        selectedPlantName: selectedPlantName,
+        onOpenPlanner: () => _setTab(0),
+        onOpenPlants: () => _setTab(1),
+        onOpenMap: () => _setTab(2),
+      ),
+    ];
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F2EA),
+      appBar: selectedIndex == 0
+          ? null
+          : AppBar(
+              title: Text(_title),
+              centerTitle: false,
+              backgroundColor: const Color(0xFFF7F2EA),
+              surfaceTintColor: Colors.transparent,
+              actions: [
+                if (selectedPlantName != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Center(
+                      child: Chip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(
+                          selectedPlantName!,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (selectedIndex == 2)
+                  IconButton(
+                    tooltip: 'Save map',
+                    onPressed: saving ? null : _saveProject,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                  ),
+              ],
+            ),
+      body: SafeArea(
+        top: selectedIndex != 0,
+        child: IndexedStack(index: selectedIndex, children: pages),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selectedIndex,
+        onDestinationSelected: _setTab,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.yard_outlined),
+            selectedIcon: Icon(Icons.yard),
+            label: 'Planner',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.eco_outlined),
+            selectedIcon: Icon(Icons.eco),
+            label: 'Plants',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: 'Map',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.phone_android_outlined),
+            selectedIcon: Icon(Icons.phone_android),
+            label: 'Port',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileMapPage() {
+    if (loading) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(statusMessage, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _MobileMapHeader(
+          selectedPlantName: selectedPlantName,
+          selectedBed: controller.selectedBed,
+          bedCount: controller.beds.length,
+          plantedBedCount: controller.beds
+              .where(
+                (bed) =>
+                    bed.crops.isNotEmpty ||
+                    bed.cropPlacements.isNotEmpty ||
+                    bed.cropBlocks.isNotEmpty,
+              )
+              .length,
+          gridVisible: gridVisible,
+          labelsVisible: labelsVisible,
+          cropRowsVisible: cropRowsVisible,
+          instructionsVisible: instructionsVisible,
+          onPickPlant: () => _setTab(1),
+          onAddPlant: _addSelectedPlantToCurrentBed,
+          onFit: _fitMap,
+          onReset: _resetZoom,
+          onGridVisibleChanged: (value) {
+            setState(() {
+              gridVisible = value;
+            });
+          },
+          onLabelsVisibleChanged: (value) {
+            setState(() {
+              labelsVisible = value;
+            });
+          },
+          onCropRowsVisibleChanged: (value) {
+            setState(() {
+              cropRowsVisible = value;
+            });
+          },
+          onInstructionsVisibleChanged: (value) {
+            setState(() {
+              instructionsVisible = value;
+            });
+          },
+        ),
+        Expanded(
+          child: PlannerMapView(
+            controller: controller,
+            beds: controller.beds,
+            canvasWidth: 1200,
+            canvasHeight: 820,
+            pixelsPerMeter: pixelsPerMeter,
+            gridVisible: gridVisible,
+            labelsVisible: labelsVisible,
+            cropRowsVisible: cropRowsVisible,
+            instructionsVisible: instructionsVisible,
+            onOpenBedDetails: _openBedDetails,
+            onFitMap: _fitMap,
+            onResetZoom: _resetZoom,
+            onGridVisibleChanged: (value) {
+              setState(() {
+                gridVisible = value;
+              });
+            },
+            onLabelsVisibleChanged: (value) {
+              setState(() {
+                labelsVisible = value;
+              });
+            },
+            onCropRowsVisibleChanged: (value) {
+              setState(() {
+                cropRowsVisible = value;
+              });
+            },
+            onInstructionsVisibleChanged: (value) {
+              setState(() {
+                instructionsVisible = value;
+              });
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileMapHeader extends StatelessWidget {
+  const _MobileMapHeader({
+    required this.selectedPlantName,
+    required this.selectedBed,
+    required this.bedCount,
+    required this.plantedBedCount,
+    required this.gridVisible,
+    required this.labelsVisible,
+    required this.cropRowsVisible,
+    required this.instructionsVisible,
+    required this.onPickPlant,
+    required this.onAddPlant,
+    required this.onFit,
+    required this.onReset,
+    required this.onGridVisibleChanged,
+    required this.onLabelsVisibleChanged,
+    required this.onCropRowsVisibleChanged,
+    required this.onInstructionsVisibleChanged,
+  });
+
+  final String? selectedPlantName;
+  final Bed? selectedBed;
+  final int bedCount;
+  final int plantedBedCount;
+
+  final bool gridVisible;
+  final bool labelsVisible;
+  final bool cropRowsVisible;
+  final bool instructionsVisible;
+
+  final VoidCallback onPickPlant;
+  final VoidCallback onAddPlant;
+  final VoidCallback onFit;
+  final VoidCallback onReset;
+
+  final ValueChanged<bool> onGridVisibleChanged;
+  final ValueChanged<bool> onLabelsVisibleChanged;
+  final ValueChanged<bool> onCropRowsVisibleChanged;
+  final ValueChanged<bool> onInstructionsVisibleChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final bedName = selectedBed == null
+        ? 'No bed selected'
+        : selectedBed!.name.trim().isEmpty
+        ? 'Bed ${selectedBed!.number}'
+        : selectedBed!.name;
+
+    return Material(
+      color: const Color(0xFFF7F2EA),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              elevation: 0,
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.map_outlined),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '$bedName • $plantedBedCount/$bedCount planted',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.tonal(
+                      onPressed: onAddPlant,
+                      child: const Text('Add'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 54,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.eco_outlined, size: 18),
+                    label: Text(selectedPlantName ?? 'Pick plant'),
+                    onPressed: onPickPlant,
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.fit_screen_outlined, size: 18),
+                    label: const Text('Fit'),
+                    onPressed: onFit,
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.restart_alt, size: 18),
+                    label: const Text('Reset'),
+                    onPressed: onReset,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('Grid'),
+                    selected: gridVisible,
+                    onSelected: onGridVisibleChanged,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('Labels'),
+                    selected: labelsVisible,
+                    onSelected: onLabelsVisibleChanged,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('Rows'),
+                    selected: cropRowsVisible,
+                    onSelected: onCropRowsVisibleChanged,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('Help'),
+                    selected: instructionsVisible,
+                    onSelected: onInstructionsVisibleChanged,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BedInfoTile extends StatelessWidget {
+  const _BedInfoTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: Text(value),
+      ),
+    );
+  }
+}
+
+class _PortStatusPage extends StatelessWidget {
+  const _PortStatusPage({
+    required this.statusMessage,
+    required this.selectedPlantName,
+    required this.onOpenPlanner,
+    required this.onOpenPlants,
+    required this.onOpenMap,
+  });
+
+  final String statusMessage;
+  final String? selectedPlantName;
+  final VoidCallback onOpenPlanner;
+  final VoidCallback onOpenPlants;
+  final VoidCallback onOpenMap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F2EA),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              elevation: 0,
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.phone_android_outlined, size: 34),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Mobile port status',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(statusMessage),
+                    const SizedBox(height: 14),
+                    Chip(
+                      avatar: const Icon(Icons.eco_outlined, size: 18),
+                      label: Text(
+                        selectedPlantName == null
+                            ? 'No plant selected'
+                            : 'Selected: $selectedPlantName',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: onOpenMap,
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text('Open map'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: onOpenPlants,
+                          icon: const Icon(Icons.eco_outlined),
+                          label: const Text('Pick plant'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: onOpenPlanner,
+                          icon: const Icon(Icons.yard_outlined),
+                          label: const Text('Planner'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const _StepCard(
+              done: true,
+              title: 'Section 1',
+              subtitle: 'Mobile shell and bottom navigation added.',
+              icon: Icons.navigation_outlined,
+            ),
+            const SizedBox(height: 10),
+            const _StepCard(
+              done: true,
+              title: 'Section 2',
+              subtitle: 'Plant Info converted to a mobile scrolling layout.',
+              icon: Icons.eco_outlined,
+            ),
+            const SizedBox(height: 10),
+            const _StepCard(
+              done: true,
+              title: 'Section 3',
+              subtitle:
+                  'Map tab, mobile controls, bed bottom sheet, and add-plant flow added.',
+              icon: Icons.map_outlined,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StepCard extends StatelessWidget {
+  const _StepCard({
+    required this.done,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final bool done;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ListTile(
+        leading: Icon(done ? Icons.check_circle_outline : icon),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: Text(subtitle),
+      ),
+    );
+  }
+}

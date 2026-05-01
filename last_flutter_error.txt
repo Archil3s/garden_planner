@@ -1,0 +1,114 @@
+﻿===== IMPORTANT FLUTTER/DART ERRORS =====
+
+Try `flutter pub outdated` for more information.
+Running Gradle task 'assembleRelease'...                        
+flutter : lib/features/planner/ui/garden_screen.dart:1843:35: Error: String starting with ' must end with '.
+At line:1 char:1
++ flutter build apk --release 2>&1 | Tee-Object -Append $outFile
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (lib/features/pl...ust end with '.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+                                  '\m ├ù \m ┬╖ \',
+                                  ^^^^^^^^^^^^^^
+
+-----
+
+                                  '\m ├ù \m ┬╖ \',
+                                  ^^^^^^^^^^^^^^
+lib/features/planner/ui/garden_screen.dart:2032:43: Error: String starting with ' must end with '.
+                                          '\ plants ┬╖ \',
+                                          ^^^^^^^^^^^^^^^
+lib/features/planner/ui/garden_screen.dart:1844:35: Error: Expected ',' before this.
+                                  maxLines: 1,
+                                  ^^^^^^^^
+lib/features/planner/ui/garden_screen.dart:2033:43: Error: Expected ',' before this.
+                                          maxLines: 1,
+                                          ^^^^^^^^
+
+-----
+
+                                          '\ plants ┬╖ \',
+                                          ^^^^^^^^^^^^^^^
+lib/features/planner/ui/garden_screen.dart:1844:35: Error: Expected ',' before this.
+                                  maxLines: 1,
+                                  ^^^^^^^^
+lib/features/planner/ui/garden_screen.dart:2033:43: Error: Expected ',' before this.
+                                          maxLines: 1,
+                                          ^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+
+-----
+
+                                  maxLines: 1,
+                                  ^^^^^^^^
+lib/features/planner/ui/garden_screen.dart:2033:43: Error: Expected ',' before this.
+                                          maxLines: 1,
+                                          ^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+
+-----
+
+                                          maxLines: 1,
+                                          ^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildRelease'.
+> Process 'command 'C:\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+
+-----
+
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildRelease'.
+> Process 'command 'C:\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+
+-----
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildRelease'.
+> Process 'command 'C:\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+-----
+
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildRelease'.
+> Process 'command 'C:\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+
+-----
+

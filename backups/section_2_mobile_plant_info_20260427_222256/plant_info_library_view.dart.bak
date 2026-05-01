@@ -1,0 +1,2165 @@
+﻿import 'package:flutter/material.dart';
+
+import '../../../../core/models/crop_spacing.dart';
+import '../../../../core/models/plant_profile_data.dart';
+import '../../../../core/models/plant_variety_catalog.dart';
+import '../../../../core/models/seed_catalog.dart';
+import '../../../../core/models/sow_calendar.dart';
+import '../../../../core/plant_icons/generated_plant_icon.dart';
+import '../../../../core/plant_icons/generated_plant_svgs.dart';
+import '../../../../core/theme/garden_theme.dart';
+
+import '../../services/planting_selection_bridge.dart';
+
+enum _PlantInfoCategory { all, vegetables, herbs, trees }
+
+enum _PlantActionFilter {
+  all,
+  recommendedNow,
+  sowableNow,
+  harvestSafe,
+  risky,
+  tooLate,
+  startTrays,
+  directSow,
+  trayOrDirect,
+  transplantSoon,
+  prepareNextMonth,
+  perennials,
+  fastCrops,
+  longSeason,
+  noCalendar,
+}
+
+enum _HarvestStatus { safe, risky, tooLate, perennial, unknown }
+
+class PlantInfoLibraryView extends StatefulWidget {
+  const PlantInfoLibraryView({super.key, this.onPlantChosen});
+
+  final ValueChanged<String>? onPlantChosen;
+
+  @override
+  State<PlantInfoLibraryView> createState() => _PlantInfoLibraryViewState();
+}
+
+class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
+  void _selectPlantForMap(_PlantProfile profile) {
+    final cropName = profile.name.trim().isEmpty
+        ? profile.key.trim()
+        : profile.name.trim();
+
+    if (cropName.isEmpty) return;
+
+    if (widget.onPlantChosen != null) {
+      widget.onPlantChosen!(cropName);
+      return;
+    }
+
+    PlantingSelectionBridge.selectPlant(cropName);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$cropName selected. Open Map to plant it.')),
+    );
+  }
+
+  late final List<_PlantProfile> _profiles;
+
+  final Map<String, _SeasonInfo> _seasonCache = {};
+  final Map<String, List<PlantTypeGroup>> _groupCache = {};
+  final Map<String, List<PlantVariety>> _varietyCache = {};
+  final Map<String, PlantProfileData> _profileDataCache = {};
+
+  _PlantInfoCategory activeCategory = _PlantInfoCategory.all;
+  _PlantActionFilter activeFilter = _PlantActionFilter.recommendedNow;
+  int activeMonth = DateTime.now().month;
+  String activeSpeciesFilter = 'All species';
+  String query = '';
+
+  @override
+  void initState() {
+    super.initState();
+
+    _profiles = generatedPlantSvgs.keys.map(_profileForIconKey).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  List<_PlantProfile> get visibleProfiles {
+    final normalizedQuery = query.trim().toLowerCase();
+
+    return _profiles.where((profile) {
+      if (activeCategory != _PlantInfoCategory.all &&
+          profile.category != activeCategory) {
+        return false;
+      }
+
+      if (!_matchesSpecies(profile)) return false;
+
+      if (normalizedQuery.isNotEmpty &&
+          !profile.name.toLowerCase().contains(normalizedQuery) &&
+          !profile.key.toLowerCase().contains(normalizedQuery) &&
+          !profile.family.toLowerCase().contains(normalizedQuery)) {
+        return false;
+      }
+
+      return _matchesFilter(profile);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = visibleProfiles;
+
+    return Container(
+      color: const Color(0xFFF5F0E8),
+      child: Column(
+        children: [
+          _header(visible.length),
+          _seasonAssumptionBar(),
+          _categoryTabs(),
+          _monthSearchRow(),
+          _speciesFilterRail(),
+          _actionFilterRail(),
+          Expanded(
+            child: visible.isEmpty
+                ? _emptyState()
+                : GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(22, 18, 22, 34),
+                    cacheExtent: 700,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: true,
+                    itemCount: visible.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 315,
+                          mainAxisSpacing: 22,
+                          crossAxisSpacing: 22,
+                          mainAxisExtent: 420,
+                        ),
+                    itemBuilder: (context, index) {
+                      final profile = visible[index];
+                      final season = _seasonInfo(profile);
+                      final groups = _groupsFor(profile);
+                      final varieties = _varietiesFor(profile);
+                      final matchedVariety = _bestVarietyForProfile(
+                        profile,
+                        varieties,
+                      );
+                      final profileData = _profileDataFor(profile);
+
+                      return _PlantInfoCard(
+                        profile: profile,
+                        season: season,
+                        groups: groups,
+                        varietyCount: varieties.length,
+                        matchedVariety: matchedVariety,
+                        profileData: profileData,
+                        onTap: () => _openDetails(profile),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(int visibleCount) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(34, 24, 34, 20),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFEFCF7),
+        border: Border(bottom: BorderSide(color: GardenTheme.border)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: GardenTheme.good.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(
+                color: GardenTheme.good.withValues(alpha: 0.28),
+              ),
+            ),
+            child: const Icon(Icons.eco, color: GardenTheme.good, size: 28),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Plant Info',
+                  style: TextStyle(
+                    color: GardenTheme.ink,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    height: 1.05,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$visibleCount shown · ${_profiles.length} plants · ${SowCalendar.monthName(activeMonth)}',
+                  style: const TextStyle(
+                    color: GardenTheme.muted,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            alignment: WrapAlignment.end,
+            children: const [
+              _LegendPill(label: 'Safe', color: GardenTheme.good),
+              _LegendPill(label: 'Risky', color: Color(0xFFB7791F)),
+              _LegendPill(label: 'Too late', color: GardenTheme.bad),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _seasonAssumptionBar() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(34, 10, 34, 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFFFAEE),
+        border: Border(bottom: BorderSide(color: GardenTheme.border)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline, size: 17, color: Color(0xFF8A6D2F)),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Sowable means the calendar allows it. Harvest-safe also checks estimated days needed before the crop season closes.',
+              style: TextStyle(
+                color: Color(0xFF6D5B30),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryTabs() {
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 34),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFEFCF7),
+        border: Border(bottom: BorderSide(color: GardenTheme.border)),
+      ),
+      child: Row(
+        children: [
+          _categoryTab(_PlantInfoCategory.all),
+          _categoryTab(_PlantInfoCategory.vegetables),
+          _categoryTab(_PlantInfoCategory.herbs),
+          _categoryTab(_PlantInfoCategory.trees),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryTab(_PlantInfoCategory category) {
+    final selected = activeCategory == category;
+    final scoped = category == _PlantInfoCategory.all
+        ? _profiles
+        : _profiles.where((profile) => profile.category == category).toList();
+
+    final filtered = scoped.where(_matchesSpecies).where(_matchesFilter).length;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          activeCategory = category;
+          activeSpeciesFilter = 'All species';
+          query = '';
+        });
+      },
+      child: Container(
+        height: double.infinity,
+        width: 155,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? GardenTheme.good : Colors.transparent,
+              width: 2.5,
+            ),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _categoryLabel(category).toUpperCase(),
+              style: TextStyle(
+                color: selected ? GardenTheme.ink : GardenTheme.muted,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: selected
+                    ? GardenTheme.good.withValues(alpha: 0.12)
+                    : GardenTheme.border,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                activeFilter == _PlantActionFilter.all
+                    ? scoped.length.toString()
+                    : '$filtered/${scoped.length}',
+                style: TextStyle(
+                  color: selected ? GardenTheme.good : GardenTheme.muted,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _monthSearchRow() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(34, 14, 34, 8),
+      color: const Color(0xFFF5F0E8),
+      child: Row(
+        children: [
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                activeMonth = _previousMonth(activeMonth);
+              });
+            },
+            icon: const Icon(Icons.chevron_left),
+            label: const Text('Previous'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: () {
+              setState(() {
+                activeMonth = DateTime.now().month;
+              });
+            },
+            icon: const Icon(Icons.today),
+            label: Text(SowCalendar.monthName(activeMonth)),
+            style: FilledButton.styleFrom(
+              backgroundColor: GardenTheme.good,
+              foregroundColor: GardenTheme.cream,
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                activeMonth = _nextMonth(activeMonth);
+              });
+            },
+            icon: const Icon(Icons.chevron_right),
+            label: const Text('Next'),
+          ),
+          const SizedBox(width: 12),
+          _monthDropDown(),
+          const SizedBox(width: 16),
+          Expanded(child: _searchField()),
+        ],
+      ),
+    );
+  }
+
+  Widget _monthDropDown() {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEFCF7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: activeMonth,
+          onChanged: (value) {
+            if (value == null) return;
+
+            setState(() {
+              activeMonth = value;
+            });
+          },
+          items: [
+            for (var month = 1; month <= 12; month++)
+              DropdownMenuItem<int>(
+                value: month,
+                child: Text(SowCalendar.monthName(month)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _searchField() {
+    return TextField(
+      onChanged: (value) {
+        setState(() {
+          query = value;
+        });
+      },
+      decoration: InputDecoration(
+        hintText: 'Search crop, subtype, family',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: query.isEmpty
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () {
+                  setState(() {
+                    query = '';
+                  });
+                },
+              ),
+        filled: true,
+        fillColor: const Color(0xFFFEFCF7),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 13,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: GardenTheme.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: GardenTheme.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: GardenTheme.good, width: 1.6),
+        ),
+      ),
+    );
+  }
+
+  Widget _speciesFilterRail() {
+    final choices = _speciesChoices();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(34, 8, 34, 4),
+      color: const Color(0xFFF5F0E8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final choice in choices)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _PillButton(
+                  selected: activeSpeciesFilter == choice,
+                  label: choice,
+                  icon: _speciesIcon(choice),
+                  selectedColor: GardenTheme.good,
+                  onTap: () {
+                    setState(() {
+                      activeSpeciesFilter = choice;
+                    });
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionFilterRail() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(34, 6, 34, 10),
+      color: const Color(0xFFF5F0E8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final filter in _PlantActionFilter.values)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _PillButton(
+                  selected: activeFilter == filter,
+                  label: _filterLabel(filter),
+                  icon: _filterIcon(filter),
+                  selectedColor: GardenTheme.ink,
+                  onTap: () {
+                    setState(() {
+                      activeFilter = filter;
+                    });
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return Center(
+      child: Container(
+        width: 460,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEFCF7),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: GardenTheme.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.filter_alt_off,
+              size: 40,
+              color: GardenTheme.muted,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No matches for ${_filterLabel(activeFilter)} in ${SowCalendar.monthName(activeMonth)}.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: GardenTheme.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Try All, Recommended now, or switch the month/category.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: GardenTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _matchesFilter(_PlantProfile profile) {
+    final info = _seasonInfo(profile);
+
+    switch (activeFilter) {
+      case _PlantActionFilter.all:
+        return true;
+      case _PlantActionFilter.recommendedNow:
+        return info.sowableNow &&
+            (info.status == _HarvestStatus.safe ||
+                info.status == _HarvestStatus.perennial);
+      case _PlantActionFilter.sowableNow:
+        return info.sowableNow;
+      case _PlantActionFilter.harvestSafe:
+        return info.status == _HarvestStatus.safe;
+      case _PlantActionFilter.risky:
+        return info.status == _HarvestStatus.risky;
+      case _PlantActionFilter.tooLate:
+        return info.status == _HarvestStatus.tooLate;
+      case _PlantActionFilter.startTrays:
+        return info.activeCalendarItems.any(
+          (item) => item.method == SowMethod.tray,
+        );
+      case _PlantActionFilter.directSow:
+        return info.activeCalendarItems.any(
+          (item) => item.method == SowMethod.direct,
+        );
+      case _PlantActionFilter.trayOrDirect:
+        return info.activeCalendarItems.any(
+          (item) => item.method == SowMethod.either,
+        );
+      case _PlantActionFilter.transplantSoon:
+        return info.transplantSoon;
+      case _PlantActionFilter.prepareNextMonth:
+        return info.nextMonthCalendarItems.isNotEmpty;
+      case _PlantActionFilter.perennials:
+        return info.perennial;
+      case _PlantActionFilter.fastCrops:
+        return info.daysNeeded > 0 && info.daysNeeded <= 75;
+      case _PlantActionFilter.longSeason:
+        return info.daysNeeded >= 120;
+      case _PlantActionFilter.noCalendar:
+        return info.calendarItems.isEmpty;
+    }
+  }
+
+  _PlantProfile _profileForIconKey(String key) {
+    final catalog = _catalogForKey(key);
+    final displayName = _displayNameForKey(key);
+
+    return _PlantProfile(
+      key: key,
+      name: displayName,
+      family: catalog?.category ?? _familyFallback(key),
+      catalog: catalog,
+      category: _categoryFor(key, catalog),
+    );
+  }
+
+  _SeasonInfo _seasonInfo(_PlantProfile profile) {
+    final cacheKey = '${profile.key}|$activeMonth';
+
+    final cached = _seasonCache[cacheKey];
+    if (cached != null) return cached;
+
+    final calendarItems = _calendarItemsFor(profile);
+    final activeItems = calendarItems
+        .where((item) => item.isForMonth(activeMonth))
+        .toList();
+    final nextItems = calendarItems
+        .where((item) => item.isForMonth(_nextMonth(activeMonth)))
+        .toList();
+
+    final perennial = _isPerennial(profile);
+    final transplantSoon = _isLikelyTransplantSoon(calendarItems);
+    final bestActive = _bestViability(profile, activeItems);
+    final nextGoodMonth = _nextGoodSowMonth(profile, calendarItems);
+    final nextAnyMonth = _nextAnySowMonth(calendarItems);
+
+    final info = _SeasonInfo(
+      calendarItems: calendarItems,
+      activeCalendarItems: activeItems,
+      nextMonthCalendarItems: nextItems,
+      sowableNow: activeItems.isNotEmpty,
+      perennial: perennial,
+      transplantSoon: transplantSoon,
+      status: bestActive.status,
+      daysNeeded: bestActive.daysNeeded,
+      daysAvailable: bestActive.daysAvailable,
+      reason: bestActive.reason,
+      nextGoodMonth: nextGoodMonth,
+      nextAnyMonth: nextAnyMonth,
+    );
+
+    _seasonCache[cacheKey] = info;
+
+    return info;
+  }
+
+  _HarvestResult _bestViability(
+    _PlantProfile profile,
+    List<SowCalendarItem> items,
+  ) {
+    if (_isPerennial(profile)) {
+      return const _HarvestResult(
+        status: _HarvestStatus.perennial,
+        daysNeeded: 0,
+        daysAvailable: 365,
+        reason:
+            'Long-term or perennial crop. Treat as a multi-season planting.',
+      );
+    }
+
+    if (items.isEmpty) {
+      return const _HarvestResult(
+        status: _HarvestStatus.unknown,
+        daysNeeded: 0,
+        daysAvailable: 0,
+        reason: 'Not listed as sowable for this month.',
+      );
+    }
+
+    final ranked =
+        items.map((item) => _harvestViability(profile, item)).toList()..sort(
+          (a, b) => _statusRank(a.status).compareTo(_statusRank(b.status)),
+        );
+
+    return ranked.first;
+  }
+
+  _HarvestResult _harvestViability(
+    _PlantProfile profile,
+    SowCalendarItem item,
+  ) {
+    final catalog = profile.catalog ?? item.seed;
+    final daysNeeded = _daysNeededToHarvest(catalog, item.method);
+    final daysAvailable = _daysAvailableToHarvestDeadline(profile, activeMonth);
+    final margin = daysAvailable - daysNeeded;
+
+    if (margin >= 21) {
+      return _HarvestResult(
+        status: _HarvestStatus.safe,
+        daysNeeded: daysNeeded,
+        daysAvailable: daysAvailable,
+        reason: 'Enough estimated time before the crop season closes.',
+      );
+    }
+
+    if (margin >= 0) {
+      return _HarvestResult(
+        status: _HarvestStatus.risky,
+        daysNeeded: daysNeeded,
+        daysAvailable: daysAvailable,
+        reason: 'Possible, but timing is tight.',
+      );
+    }
+
+    return _HarvestResult(
+      status: _HarvestStatus.tooLate,
+      daysNeeded: daysNeeded,
+      daysAvailable: daysAvailable,
+      reason: 'Calendar allows sowing, but harvest is unlikely in time.',
+    );
+  }
+
+  List<SowCalendarItem> _calendarItemsFor(_PlantProfile profile) {
+    final profileKey = _normalize(profile.key);
+    final profileName = _normalize(profile.name);
+
+    return SowCalendar.items.where((item) {
+      final seedKey = _normalize(item.seedKey);
+      final cropName = _normalize(item.seed.cropName);
+
+      return seedKey == profileKey ||
+          cropName == profileKey ||
+          seedKey == profileName ||
+          cropName == profileName ||
+          profileKey.contains(seedKey) ||
+          seedKey.contains(profileKey);
+    }).toList();
+  }
+
+  SeedCatalogItem? _catalogForKey(String key) {
+    final normalizedKey = _normalize(key);
+
+    for (final item in SeedCatalog.items) {
+      final catalogKey = _normalize(item.key);
+      final cropName = _normalize(item.cropName);
+
+      if (catalogKey == normalizedKey ||
+          cropName == normalizedKey ||
+          normalizedKey.contains(catalogKey) ||
+          catalogKey.contains(normalizedKey)) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
+  List<PlantTypeGroup> _groupsFor(_PlantProfile profile) {
+    return _groupCache.putIfAbsent(
+      profile.key,
+      () => PlantVarietyCatalog.groupsForCrop(profile.key),
+    );
+  }
+
+  List<PlantVariety> _varietiesFor(_PlantProfile profile) {
+    return _varietyCache.putIfAbsent(
+      profile.key,
+      () => PlantVarietyCatalog.varietiesForCrop(profile.key),
+    );
+  }
+
+  PlantProfileData _profileDataFor(_PlantProfile profile) {
+    return _profileDataCache.putIfAbsent(
+      profile.key,
+      () => PlantProfileData.forCrop(profile.key, family: profile.family),
+    );
+  }
+
+  PlantVariety? _bestVarietyForProfile(
+    _PlantProfile profile,
+    List<PlantVariety> varieties,
+  ) {
+    if (varieties.isEmpty) return null;
+
+    final profileKey = _normalizeForCompare(profile.key);
+    final profileName = _normalizeForCompare(profile.name);
+
+    for (final variety in varieties) {
+      final varietyName = _normalizeForCompare(variety.name);
+
+      if (profileKey == varietyName ||
+          profileName == varietyName ||
+          profileKey.contains(varietyName) ||
+          varietyName.contains(profileKey) ||
+          profileName.contains(varietyName) ||
+          varietyName.contains(profileName)) {
+        return variety;
+      }
+
+      for (final alias in variety.alsoKnownAs) {
+        final normalizedAlias = _normalizeForCompare(alias);
+
+        if (profileKey == normalizedAlias ||
+            profileName == normalizedAlias ||
+            profileKey.contains(normalizedAlias) ||
+            normalizedAlias.contains(profileKey) ||
+            profileName.contains(normalizedAlias) ||
+            normalizedAlias.contains(profileName)) {
+          return variety;
+        }
+      }
+    }
+
+    final key = profileKey;
+
+    if (key.contains('broccolini')) {
+      return varieties.firstWhere(
+        (v) => _normalizeForCompare(v.name).contains('broccolini'),
+        orElse: () => varieties.first,
+      );
+    }
+
+    if (key.contains('chinese') || key.contains('gai lan')) {
+      return varieties.firstWhere(
+        (v) => _normalizeForCompare(v.name).contains('chinese'),
+        orElse: () => varieties.first,
+      );
+    }
+
+    if (key.contains('romanesco')) {
+      return varieties.firstWhere(
+        (v) => _normalizeForCompare(v.name).contains('romanesco'),
+        orElse: () => varieties.first,
+      );
+    }
+
+    if (key.contains('purple')) {
+      return varieties.firstWhere(
+        (v) => _normalizeForCompare(v.name).contains('purple'),
+        orElse: () => varieties.first,
+      );
+    }
+
+    if (key.contains('sprouting')) {
+      return varieties.firstWhere(
+        (v) => _normalizeForCompare(v.name).contains('sprouting'),
+        orElse: () => varieties.first,
+      );
+    }
+
+    return varieties.first;
+  }
+
+  int _daysNeededToHarvest(SeedCatalogItem catalog, SowMethod method) {
+    final direct =
+        catalog.germinationMaxDays + catalog.harvestDaysFromTransplant;
+    final tray =
+        catalog.germinationMaxDays +
+        catalog.transplantMaxDays +
+        catalog.harvestDaysFromTransplant;
+
+    switch (method) {
+      case SowMethod.direct:
+        return direct;
+      case SowMethod.tray:
+        return tray;
+      case SowMethod.either:
+        return direct < tray ? direct : tray;
+    }
+  }
+
+  int _daysAvailableToHarvestDeadline(_PlantProfile profile, int month) {
+    final deadline = _harvestDeadlineMonth(profile);
+    final monthsAvailable = _monthsUntilInclusive(month, deadline);
+
+    return monthsAvailable * 30;
+  }
+
+  int _harvestDeadlineMonth(_PlantProfile profile) {
+    final value = '${profile.key} ${profile.name} ${profile.family}'
+        .toLowerCase();
+
+    if (profile.category == _PlantInfoCategory.trees) return 12;
+
+    if (value.contains('tomato') ||
+        value.contains('capsicum') ||
+        value.contains('pepper') ||
+        value.contains('chilli') ||
+        value.contains('chili') ||
+        value.contains('eggplant') ||
+        value.contains('cucumber') ||
+        value.contains('zucchini') ||
+        value.contains('courgette') ||
+        value.contains('pumpkin') ||
+        value.contains('squash') ||
+        value.contains('melon') ||
+        value.contains('watermelon') ||
+        value.contains('corn') ||
+        value.contains('basil') ||
+        value.contains('nightshade') ||
+        value.contains('cucurbit')) {
+      return 4;
+    }
+
+    if (value.contains('lettuce') ||
+        value.contains('spinach') ||
+        value.contains('kale') ||
+        value.contains('broccoli') ||
+        value.contains('cabbage') ||
+        value.contains('cauliflower') ||
+        value.contains('radish') ||
+        value.contains('carrot') ||
+        value.contains('beet') ||
+        value.contains('brassica')) {
+      return 11;
+    }
+
+    return 12;
+  }
+
+  bool _isLikelyTransplantSoon(List<SowCalendarItem> items) {
+    return items.any((item) {
+      if (item.method == SowMethod.direct) return false;
+
+      return item.months.contains(_previousMonth(activeMonth)) ||
+          item.months.contains(_previousMonth(_previousMonth(activeMonth)));
+    });
+  }
+
+  int? _nextGoodSowMonth(
+    _PlantProfile profile,
+    List<SowCalendarItem> calendarItems,
+  ) {
+    for (var offset = 0; offset < 12; offset++) {
+      final month = _shiftMonth(activeMonth, offset);
+      final items = calendarItems.where((item) => item.isForMonth(month));
+      final good = items.any((item) {
+        final result = _harvestViabilityForMonth(profile, item, month);
+
+        return result.status == _HarvestStatus.safe ||
+            result.status == _HarvestStatus.perennial;
+      });
+
+      if (good) return month;
+    }
+
+    return null;
+  }
+
+  int? _nextAnySowMonth(List<SowCalendarItem> calendarItems) {
+    for (var offset = 0; offset < 12; offset++) {
+      final month = _shiftMonth(activeMonth, offset);
+      if (calendarItems.any((item) => item.isForMonth(month))) return month;
+    }
+
+    return null;
+  }
+
+  _HarvestResult _harvestViabilityForMonth(
+    _PlantProfile profile,
+    SowCalendarItem item,
+    int month,
+  ) {
+    if (_isPerennial(profile)) {
+      return const _HarvestResult(
+        status: _HarvestStatus.perennial,
+        daysNeeded: 0,
+        daysAvailable: 365,
+        reason: 'Long-term or perennial crop.',
+      );
+    }
+
+    final catalog = profile.catalog ?? item.seed;
+    final daysNeeded = _daysNeededToHarvest(catalog, item.method);
+    final daysAvailable = _daysAvailableToHarvestDeadline(profile, month);
+    final margin = daysAvailable - daysNeeded;
+
+    if (margin >= 21) {
+      return _HarvestResult(
+        status: _HarvestStatus.safe,
+        daysNeeded: daysNeeded,
+        daysAvailable: daysAvailable,
+        reason: 'Enough estimated time to mature.',
+      );
+    }
+
+    if (margin >= 0) {
+      return _HarvestResult(
+        status: _HarvestStatus.risky,
+        daysNeeded: daysNeeded,
+        daysAvailable: daysAvailable,
+        reason: 'Possible but tight.',
+      );
+    }
+
+    return _HarvestResult(
+      status: _HarvestStatus.tooLate,
+      daysNeeded: daysNeeded,
+      daysAvailable: daysAvailable,
+      reason: 'Likely too late to mature.',
+    );
+  }
+
+  void _openDetails(_PlantProfile profile) {
+    final info = _seasonInfo(profile);
+    final groups = _groupsFor(profile);
+    final varieties = _varietiesFor(profile);
+    final data = _profileDataFor(profile);
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFFFEFCF7),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: GardenTheme.border),
+          ),
+          title: Text(profile.name),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GeneratedPlantIcon(cropName: profile.key, size: 118),
+                  const SizedBox(height: 16),
+                  _dialogRow('Decision', _statusLabel(info.status)),
+                  _dialogRow(
+                    'Days needed vs available',
+                    info.daysNeeded <= 0
+                        ? 'Not a single-season crop or no calendar match.'
+                        : '${info.daysNeeded} days needed · ${info.daysAvailable} days available',
+                  ),
+                  _dialogRow('Reason', info.reason),
+                  _dialogRow('Category', _categoryLabel(profile.category)),
+                  _dialogRow('Family', profile.family),
+                  _dialogRow(
+                    'Spacing',
+                    CropSpacing.spacingLabelForCrop(profile.name),
+                  ),
+                  _dialogRow('Recommended layout', data.recommendedLayout),
+                  _dialogRow('Sowing depth', data.sowDepth),
+                  _dialogRow('Sun', data.sun),
+                  _dialogRow('Water', data.water),
+                  _dialogRow('Soil', data.soil),
+                  _dialogRow('Rotation family', data.rotationFamily),
+                  _dialogRow('Succession', data.succession),
+                  _dialogRow('Frost / temperature', data.frost),
+                  _dialogRow('Container suitability', data.container),
+                  _dialogRow('Support', data.support),
+                  _dialogRow('Planner use', data.plannerUse),
+                  if (data.warnings.isNotEmpty)
+                    _dialogRow('Warnings', data.warnings.join('\n')),
+                  if (groups.isNotEmpty)
+                    for (final group in groups) _varietyGroupCard(group)
+                  else
+                    _dialogRow(
+                      'Subtypes',
+                      'No subtype group exists for this plant yet.',
+                    ),
+                  if (varieties.isNotEmpty)
+                    _dialogRow(
+                      'Subtype count',
+                      '${varieties.length} subtype${varieties.length == 1 ? '' : 's'} listed.',
+                    ),
+                  if (info.activeCalendarItems.isNotEmpty)
+                    for (final item in info.activeCalendarItems)
+                      _dialogRow(
+                        _methodLabel(item.method),
+                        '${_monthList(item.months)}\n${item.note}',
+                      )
+                  else if (info.calendarItems.isNotEmpty)
+                    _dialogRow(
+                      'Calendar',
+                      'Not listed for ${SowCalendar.monthName(activeMonth)}. Windows: ${info.calendarItems.map((item) => '${_methodLabel(item.method)} ${_monthList(item.months)}').join(' · ')}',
+                    )
+                  else
+                    _dialogRow('Calendar', 'No sow-calendar entry yet.'),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _selectPlantForMap(profile);
+              },
+              icon: const Icon(Icons.add_location_alt_outlined),
+              label: const Text('Plant on map'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _varietyGroupCard(PlantTypeGroup group) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F0E8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            group.title.toUpperCase(),
+            style: const TextStyle(
+              color: GardenTheme.muted,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            group.summary,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final variety in group.varieties) _varietyTile(variety),
+        ],
+      ),
+    );
+  }
+
+  Widget _varietyTile(PlantVariety variety) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEFCF7),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            variety.name,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (variety.alsoKnownAs.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              'Also known as: ${variety.alsoKnownAs.join(', ')}',
+              style: const TextStyle(
+                color: GardenTheme.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 7),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _detailPill('${variety.spacingCm}cm spacing'),
+              _detailPill(variety.daysToMaturity),
+              _detailPill(variety.difficulty),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('Use: ${variety.bestUse}', style: _detailBodyStyle),
+          const SizedBox(height: 4),
+          Text('Sow/plant: ${variety.sowingNote}', style: _detailBodyStyle),
+          const SizedBox(height: 4),
+          Text('Harvest: ${variety.harvestNote}', style: _detailBodyStyle),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailPill(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: GardenTheme.good.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: GardenTheme.good.withValues(alpha: 0.24)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: GardenTheme.good,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  static const _detailBodyStyle = TextStyle(
+    color: GardenTheme.ink,
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    height: 1.3,
+  );
+
+  static Widget _dialogRow(String label, String value) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F0E8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: GardenTheme.muted,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _speciesChoices() {
+    final scoped = activeCategory == _PlantInfoCategory.all
+        ? _profiles
+        : _profiles.where((profile) => profile.category == activeCategory);
+
+    final values = <String>{
+      'All species',
+      for (final profile in scoped) _speciesForProfile(profile),
+    }.toList();
+
+    values.sort((a, b) {
+      if (a == 'All species') return -1;
+      if (b == 'All species') return 1;
+      return a.compareTo(b);
+    });
+
+    return values;
+  }
+
+  bool _matchesSpecies(_PlantProfile profile) {
+    if (activeSpeciesFilter == 'All species') return true;
+
+    return _speciesForProfile(profile) == activeSpeciesFilter;
+  }
+
+  String _speciesForProfile(_PlantProfile profile) {
+    final value = '${profile.key} ${profile.name} ${profile.family}'
+        .toLowerCase();
+
+    if (value.contains('broccoli') ||
+        value.contains('cabbage') ||
+        value.contains('cauliflower') ||
+        value.contains('kale') ||
+        value.contains('brussels') ||
+        value.contains('brassica')) {
+      return 'Brassica';
+    }
+
+    if (value.contains('lettuce') ||
+        value.contains('spinach') ||
+        value.contains('silverbeet') ||
+        value.contains('chard') ||
+        value.contains('rocket') ||
+        value.contains('arugula') ||
+        value.contains('leafy')) {
+      return 'Leafy green';
+    }
+
+    if (value.contains('onion') ||
+        value.contains('garlic') ||
+        value.contains('leek') ||
+        value.contains('shallot') ||
+        value.contains('chive') ||
+        value.contains('allium')) {
+      return 'Allium';
+    }
+
+    if (value.contains('tomato') ||
+        value.contains('pepper') ||
+        value.contains('capsicum') ||
+        value.contains('chilli') ||
+        value.contains('chili') ||
+        value.contains('eggplant') ||
+        value.contains('aubergine') ||
+        value.contains('nightshade')) {
+      return 'Nightshade';
+    }
+
+    if (value.contains('cucumber') ||
+        value.contains('zucchini') ||
+        value.contains('courgette') ||
+        value.contains('pumpkin') ||
+        value.contains('squash') ||
+        value.contains('melon') ||
+        value.contains('watermelon') ||
+        value.contains('cucurbit')) {
+      return 'Cucurbit';
+    }
+
+    if (value.contains('carrot') ||
+        value.contains('beet') ||
+        value.contains('beetroot') ||
+        value.contains('radish') ||
+        value.contains('turnip') ||
+        value.contains('swede') ||
+        value.contains('parsnip') ||
+        value.contains('potato') ||
+        value.contains('kumara') ||
+        value.contains('sweet potato')) {
+      return 'Root crop';
+    }
+
+    if (value.contains('bean') ||
+        value.contains('pea') ||
+        value.contains('lentil') ||
+        value.contains('legume')) {
+      return 'Legume';
+    }
+
+    if (profile.category == _PlantInfoCategory.herbs ||
+        value.contains('basil') ||
+        value.contains('mint') ||
+        value.contains('parsley') ||
+        value.contains('coriander') ||
+        value.contains('cilantro') ||
+        value.contains('dill') ||
+        value.contains('thyme') ||
+        value.contains('rosemary') ||
+        value.contains('sage') ||
+        value.contains('oregano') ||
+        value.contains('lavender')) {
+      return 'Herb';
+    }
+
+    if (value.contains('strawberry') ||
+        value.contains('raspberry') ||
+        value.contains('blueberry') ||
+        value.contains('blackberry') ||
+        value.contains('berry')) {
+      return 'Berry';
+    }
+
+    if (value.contains('apple') ||
+        value.contains('pear') ||
+        value.contains('peach') ||
+        value.contains('plum') ||
+        value.contains('apricot') ||
+        value.contains('citrus') ||
+        value.contains('lemon') ||
+        value.contains('orange') ||
+        value.contains('mandarin') ||
+        value.contains('lime') ||
+        value.contains('fig')) {
+      return 'Fruit tree';
+    }
+
+    if (profile.category == _PlantInfoCategory.trees ||
+        value.contains('tree') ||
+        value.contains('oak') ||
+        value.contains('maple') ||
+        value.contains('birch') ||
+        value.contains('palm')) {
+      return 'Tree';
+    }
+
+    return 'General';
+  }
+
+  bool _isPerennial(_PlantProfile profile) {
+    final value = '${profile.key} ${profile.name}'.toLowerCase();
+
+    return profile.category == _PlantInfoCategory.trees ||
+        value.contains('berry') ||
+        value.contains('strawberry') ||
+        value.contains('raspberry') ||
+        value.contains('blueberry') ||
+        value.contains('blackberry') ||
+        value.contains('asparagus') ||
+        value.contains('artichoke') ||
+        value.contains('rosemary') ||
+        value.contains('thyme') ||
+        value.contains('mint') ||
+        value.contains('lavender') ||
+        value.contains('sage');
+  }
+
+  _PlantInfoCategory _categoryFor(String key, SeedCatalogItem? catalog) {
+    final value = '$key ${catalog?.category ?? ''}'.toLowerCase();
+
+    if (_isHerbName(value)) return _PlantInfoCategory.herbs;
+
+    if (value.contains('tree') ||
+        value.contains('bush') ||
+        value.contains('berry') ||
+        value.contains('bonsai') ||
+        value.contains('palm') ||
+        value.contains('oak') ||
+        value.contains('maple') ||
+        value.contains('birch') ||
+        value.contains('magnolia') ||
+        value.contains('apple') ||
+        value.contains('apricot') ||
+        value.contains('citrus') ||
+        value.contains('fig') ||
+        value.contains('peach') ||
+        value.contains('pear') ||
+        value.contains('plum')) {
+      return _PlantInfoCategory.trees;
+    }
+
+    return _PlantInfoCategory.vegetables;
+  }
+
+  static bool _isHerbName(String value) {
+    const herbs = {
+      'basil',
+      'chives',
+      'cilantro',
+      'coriander',
+      'dill',
+      'lavender',
+      'mint',
+      'oregano',
+      'parsley',
+      'rosemary',
+      'sage',
+      'thyme',
+      'tarragon',
+      'echinacea',
+      'agastache',
+      'catnip',
+      'chamomile',
+      'fennel',
+      'lemon_balm',
+      'marjoram',
+      'savory',
+      'sorrel',
+      'yarrow',
+    };
+
+    for (final herb in herbs) {
+      if (value == herb || value.contains(herb)) return true;
+    }
+
+    return false;
+  }
+
+  static String _filterLabel(_PlantActionFilter filter) {
+    return switch (filter) {
+      _PlantActionFilter.all => 'All',
+      _PlantActionFilter.recommendedNow => 'Recommended now',
+      _PlantActionFilter.sowableNow => 'Sowable',
+      _PlantActionFilter.harvestSafe => 'Harvest-safe',
+      _PlantActionFilter.risky => 'Risky',
+      _PlantActionFilter.tooLate => 'Too late',
+      _PlantActionFilter.startTrays => 'Start trays',
+      _PlantActionFilter.directSow => 'Direct sow',
+      _PlantActionFilter.trayOrDirect => 'Tray/direct',
+      _PlantActionFilter.transplantSoon => 'Transplant soon',
+      _PlantActionFilter.prepareNextMonth => 'Prepare next',
+      _PlantActionFilter.perennials => 'Perennials',
+      _PlantActionFilter.fastCrops => 'Fast crops',
+      _PlantActionFilter.longSeason => 'Long season',
+      _PlantActionFilter.noCalendar => 'No calendar',
+    };
+  }
+
+  static IconData _filterIcon(_PlantActionFilter filter) {
+    return switch (filter) {
+      _PlantActionFilter.all => Icons.grid_view,
+      _PlantActionFilter.recommendedNow => Icons.recommend_outlined,
+      _PlantActionFilter.sowableNow => Icons.eco,
+      _PlantActionFilter.harvestSafe => Icons.check_circle_outline,
+      _PlantActionFilter.risky => Icons.warning_amber_outlined,
+      _PlantActionFilter.tooLate => Icons.block_outlined,
+      _PlantActionFilter.startTrays => Icons.inventory_2_outlined,
+      _PlantActionFilter.directSow => Icons.grass_outlined,
+      _PlantActionFilter.trayOrDirect => Icons.compare_arrows,
+      _PlantActionFilter.transplantSoon => Icons.move_down_outlined,
+      _PlantActionFilter.prepareNextMonth => Icons.next_plan_outlined,
+      _PlantActionFilter.perennials => Icons.park_outlined,
+      _PlantActionFilter.fastCrops => Icons.bolt_outlined,
+      _PlantActionFilter.longSeason => Icons.timelapse_outlined,
+      _PlantActionFilter.noCalendar => Icons.event_busy_outlined,
+    };
+  }
+
+  static IconData _speciesIcon(String species) {
+    return switch (species) {
+      'All species' => Icons.grid_view,
+      'Brassica' => Icons.eco,
+      'Leafy green' => Icons.spa,
+      'Allium' => Icons.grass,
+      'Nightshade' => Icons.local_florist,
+      'Cucurbit' => Icons.park_outlined,
+      'Root crop' => Icons.yard_outlined,
+      'Legume' => Icons.scatter_plot_outlined,
+      'Herb' => Icons.energy_savings_leaf,
+      'Berry' => Icons.bubble_chart_outlined,
+      'Fruit tree' => Icons.forest_outlined,
+      'Tree' => Icons.park,
+      _ => Icons.category_outlined,
+    };
+  }
+
+  static String _categoryLabel(_PlantInfoCategory category) {
+    return switch (category) {
+      _PlantInfoCategory.all => 'All',
+      _PlantInfoCategory.vegetables => 'Vegetables',
+      _PlantInfoCategory.herbs => 'Herbs',
+      _PlantInfoCategory.trees => 'Trees',
+    };
+  }
+
+  static String _statusLabel(_HarvestStatus status) {
+    return switch (status) {
+      _HarvestStatus.safe => 'Harvest-safe',
+      _HarvestStatus.risky => 'Risky timing',
+      _HarvestStatus.tooLate => 'Too late',
+      _HarvestStatus.perennial => 'Long-term',
+      _HarvestStatus.unknown => 'No window',
+    };
+  }
+
+  static Color _statusColor(_HarvestStatus status) {
+    return switch (status) {
+      _HarvestStatus.safe => GardenTheme.good,
+      _HarvestStatus.risky => const Color(0xFFB7791F),
+      _HarvestStatus.tooLate => GardenTheme.bad,
+      _HarvestStatus.perennial => const Color(0xFF4B6F8C),
+      _HarvestStatus.unknown => GardenTheme.muted,
+    };
+  }
+
+  static String _methodLabel(SowMethod method) {
+    return switch (method) {
+      SowMethod.tray => 'Start trays',
+      SowMethod.direct => 'Direct sow',
+      SowMethod.either => 'Tray or direct',
+    };
+  }
+
+  static String _monthList(List<int> months) {
+    if (months.isEmpty) return 'None';
+
+    return months.map(SowCalendar.monthName).join(', ');
+  }
+
+  static String _displayNameForKey(String key) {
+    return key
+        .replaceAll('_', ' ')
+        .replaceAll('-', ' ')
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
+  }
+
+  static String _familyFallback(String key) {
+    final value = key.toLowerCase();
+
+    if (_isHerbName(value)) return 'Herb';
+    if (value.contains('tree') || value.contains('berry')) return 'Perennial';
+    if (value.contains('onion') || value.contains('garlic')) return 'Allium';
+    if (value.contains('broccoli') || value.contains('cabbage')) {
+      return 'Brassica';
+    }
+    if (value.contains('tomato') || value.contains('pepper')) {
+      return 'Nightshade';
+    }
+
+    return 'Plant';
+  }
+
+  static String _normalize(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', 'and')
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_')
+        .replaceAll(RegExp(r'[^a-z0-9_]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+  }
+
+  static String _normalizeForCompare(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll('&', 'and')
+        .replaceAll('-', ' ')
+        .replaceAll('_', ' ')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static int _previousMonth(int month) {
+    return month == 1 ? 12 : month - 1;
+  }
+
+  static int _nextMonth(int month) {
+    return month == 12 ? 1 : month + 1;
+  }
+
+  static int _shiftMonth(int month, int offset) {
+    var result = month;
+
+    for (var i = 0; i < offset; i++) {
+      result = _nextMonth(result);
+    }
+
+    return result;
+  }
+
+  static int _monthsUntilInclusive(int fromMonth, int toMonth) {
+    if (fromMonth <= toMonth) {
+      return toMonth - fromMonth + 1;
+    }
+
+    return (12 - fromMonth + 1) + toMonth;
+  }
+
+  static int _statusRank(_HarvestStatus status) {
+    return switch (status) {
+      _HarvestStatus.safe => 0,
+      _HarvestStatus.perennial => 1,
+      _HarvestStatus.risky => 2,
+      _HarvestStatus.tooLate => 3,
+      _HarvestStatus.unknown => 4,
+    };
+  }
+}
+
+class _PlantInfoCard extends StatelessWidget {
+  const _PlantInfoCard({
+    required this.profile,
+    required this.season,
+    required this.groups,
+    required this.varietyCount,
+    required this.matchedVariety,
+    required this.profileData,
+    required this.onTap,
+  });
+
+  final _PlantProfile profile;
+  final _SeasonInfo season;
+  final List<PlantTypeGroup> groups;
+  final int varietyCount;
+  final PlantVariety? matchedVariety;
+  final PlantProfileData profileData;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _PlantInfoLibraryViewState._statusColor(season.status);
+    final groupTitle = groups.isEmpty ? profile.family : groups.first.title;
+
+    final title = profile.name.toUpperCase();
+    final subtitle = varietyCount > 0
+        ? '$groupTitle · $varietyCount type${varietyCount == 1 ? '' : 's'}'
+        : groupTitle;
+
+    final timingText = season.daysNeeded <= 0
+        ? _nextWindowText(season)
+        : '${season.daysNeeded}d needed · ${season.daysAvailable}d left';
+
+    final varietyText = matchedVariety == null
+        ? 'No subtype profile yet'
+        : matchedVariety!.name;
+
+    final spacingText = matchedVariety == null
+        ? CropSpacing.spacingLabelForCrop(profile.name)
+        : '${matchedVariety!.spacingCm}cm spacing';
+
+    return RepaintBoundary(
+      child: Tooltip(
+        message: profile.name,
+        waitDuration: const Duration(milliseconds: 300),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.hardEdge,
+          child: InkWell(
+            onTap: onTap,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEFCF7),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: statusColor.withValues(alpha: 0.40),
+                  width: 1.35,
+                ),
+              ),
+              child: Column(
+                children: [
+                  _StatusBand(
+                    color: statusColor,
+                    icon: _statusIcon(season.status),
+                    label: _PlantInfoLibraryViewState._statusLabel(
+                      season.status,
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const ClampingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 76,
+                            height: 76,
+                            padding: const EdgeInsets.all(9),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5F0E8),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: GardenTheme.border),
+                            ),
+                            child: Center(
+                              child: GeneratedPlantIcon(
+                                cropName: profile.key,
+                                size: 56,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 9),
+                          Text(
+                            title,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: GardenTheme.ink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.7,
+                              height: 1.13,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: GardenTheme.muted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          _SafeSummaryBox(
+                            varietyText: varietyText,
+                            spacingText: spacingText,
+                            timingText: timingText,
+                          ),
+                          const SizedBox(height: 10),
+                          _PlanningChips(data: profileData),
+                          const SizedBox(height: 10),
+                          Container(
+                            height: 28,
+                            width: double.infinity,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: GardenTheme.ink,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Tap for full details',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: GardenTheme.cream,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static IconData _statusIcon(_HarvestStatus status) {
+    return switch (status) {
+      _HarvestStatus.safe => Icons.check_circle_outline,
+      _HarvestStatus.risky => Icons.warning_amber_outlined,
+      _HarvestStatus.tooLate => Icons.block_outlined,
+      _HarvestStatus.perennial => Icons.park_outlined,
+      _HarvestStatus.unknown => Icons.info_outline,
+    };
+  }
+
+  static String _nextWindowText(_SeasonInfo info) {
+    if (info.nextGoodMonth != null) {
+      return 'Best ${SowCalendar.monthName(info.nextGoodMonth!)}';
+    }
+
+    if (info.nextAnyMonth != null) {
+      return 'Next ${SowCalendar.monthName(info.nextAnyMonth!)}';
+    }
+
+    return 'No window';
+  }
+}
+
+class _StatusBand extends StatelessWidget {
+  const _StatusBand({
+    required this.color,
+    required this.icon,
+    required this.label,
+  });
+
+  final Color color;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 36,
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        border: Border(
+          bottom: BorderSide(color: color.withValues(alpha: 0.18)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 10.8,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SafeSummaryBox extends StatelessWidget {
+  const _SafeSummaryBox({
+    required this.varietyText,
+    required this.spacingText,
+    required this.timingText,
+  });
+
+  final String varietyText;
+  final String spacingText;
+  final String timingText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F0E8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            varietyText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 10.8,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _TinyInfoPill(icon: Icons.straighten, label: spacingText),
+              _TinyInfoPill(icon: Icons.schedule, label: timingText),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanningChips extends StatelessWidget {
+  const _PlanningChips({required this.data});
+
+  final PlantProfileData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        _TinyInfoPill(
+          icon: Icons.dashboard_customize_outlined,
+          label: data.recommendedLayout,
+        ),
+        _TinyInfoPill(icon: Icons.wb_sunny_outlined, label: data.sun),
+        _TinyInfoPill(icon: Icons.water_drop_outlined, label: data.water),
+        _TinyInfoPill(icon: Icons.rotate_right, label: data.rotationFamily),
+      ],
+    );
+  }
+}
+
+class _TinyInfoPill extends StatelessWidget {
+  const _TinyInfoPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 132),
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEFCF7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12.5, color: GardenTheme.muted),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: GardenTheme.ink,
+                fontSize: 8.8,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.selected,
+    required this.label,
+    required this.icon,
+    required this.selectedColor,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final String label;
+  final IconData icon;
+  final Color selectedColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 110),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? selectedColor : const Color(0xFFFEFCF7),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? selectedColor : GardenTheme.border,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: selected ? GardenTheme.cream : GardenTheme.muted,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? GardenTheme.cream : GardenTheme.ink,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendPill extends StatelessWidget {
+  const _LegendPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _PlantProfile {
+  const _PlantProfile({
+    required this.key,
+    required this.name,
+    required this.family,
+    required this.category,
+    required this.catalog,
+  });
+
+  final String key;
+  final String name;
+  final String family;
+  final _PlantInfoCategory category;
+  final SeedCatalogItem? catalog;
+}
+
+class _SeasonInfo {
+  const _SeasonInfo({
+    required this.calendarItems,
+    required this.activeCalendarItems,
+    required this.nextMonthCalendarItems,
+    required this.sowableNow,
+    required this.perennial,
+    required this.transplantSoon,
+    required this.status,
+    required this.daysNeeded,
+    required this.daysAvailable,
+    required this.reason,
+    required this.nextGoodMonth,
+    required this.nextAnyMonth,
+  });
+
+  final List<SowCalendarItem> calendarItems;
+  final List<SowCalendarItem> activeCalendarItems;
+  final List<SowCalendarItem> nextMonthCalendarItems;
+  final bool sowableNow;
+  final bool perennial;
+  final bool transplantSoon;
+  final _HarvestStatus status;
+  final int daysNeeded;
+  final int daysAvailable;
+  final String reason;
+  final int? nextGoodMonth;
+  final int? nextAnyMonth;
+}
+
+class _HarvestResult {
+  const _HarvestResult({
+    required this.status,
+    required this.daysNeeded,
+    required this.daysAvailable,
+    required this.reason,
+  });
+
+  final _HarvestStatus status;
+  final int daysNeeded;
+  final int daysAvailable;
+  final String reason;
+}

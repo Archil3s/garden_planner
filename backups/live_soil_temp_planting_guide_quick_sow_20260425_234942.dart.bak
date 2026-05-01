@@ -1,0 +1,592 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+class LiveSoilTempPlantingGuide extends StatefulWidget {
+  const LiveSoilTempPlantingGuide({super.key});
+
+  @override
+  State<LiveSoilTempPlantingGuide> createState() =>
+      _LiveSoilTempPlantingGuideState();
+}
+
+class _LiveSoilTempPlantingGuideState extends State<LiveSoilTempPlantingGuide> {
+  static const double latitude = -41.5042;
+  static const double longitude = 173.9662;
+
+  static const _WeatherSnapshot fallback = _WeatherSnapshot(
+    source: 'Fallback',
+    rootSoilTemp: 8.4,
+    surfaceSoilTemp: 10.9,
+    deepSoilTemp: 8.9,
+    airTemp: 12.0,
+    humidity: 83,
+    windKmh: 8,
+    solar: 150,
+    updated: 'offline',
+  );
+
+  _WeatherSnapshot weather = fallback;
+  bool loading = false;
+  String? notice;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(refresh());
+  }
+
+  Future<void> refresh() async {
+    setState(() {
+      loading = true;
+      notice = null;
+    });
+
+    try {
+      final uri = Uri.https('api.open-meteo.com', '/v1/forecast', {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'hourly': [
+          'soil_temperature_0cm',
+          'soil_temperature_6cm',
+          'soil_temperature_18cm',
+          'temperature_2m',
+          'relative_humidity_2m',
+          'wind_speed_10m',
+          'shortwave_radiation',
+        ].join(','),
+        'forecast_days': '1',
+        'wind_speed_unit': 'kmh',
+        'timezone': 'Pacific/Auckland',
+      });
+
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Weather request failed.');
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final hourly = decoded['hourly'] as Map<String, dynamic>?;
+
+      if (hourly == null) {
+        throw StateError('Hourly weather data unavailable.');
+      }
+
+      final index = _nearestHourIndex(hourly['time']);
+
+      final next = _WeatherSnapshot(
+        source: 'Live',
+        rootSoilTemp:
+            _numberAt(hourly['soil_temperature_6cm'], index) ??
+            fallback.rootSoilTemp,
+        surfaceSoilTemp:
+            _numberAt(hourly['soil_temperature_0cm'], index) ??
+            fallback.surfaceSoilTemp,
+        deepSoilTemp:
+            _numberAt(hourly['soil_temperature_18cm'], index) ??
+            fallback.deepSoilTemp,
+        airTemp: _numberAt(hourly['temperature_2m'], index) ?? fallback.airTemp,
+        humidity:
+            (_numberAt(hourly['relative_humidity_2m'], index) ??
+                    fallback.humidity)
+                .round(),
+        windKmh:
+            (_numberAt(hourly['wind_speed_10m'], index) ?? fallback.windKmh)
+                .round(),
+        solar:
+            (_numberAt(hourly['shortwave_radiation'], index) ?? fallback.solar)
+                .round(),
+        updated: _timeLabel(),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        weather = next;
+        notice = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        weather = fallback;
+        notice = 'Live weather unavailable. Using fallback soil data.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final plantNow = plantGroups
+        .where((group) => weather.rootSoilTemp >= group.minimumSoilTemp)
+        .toList();
+
+    final nearlyReady = plantGroups
+        .where(
+          (group) =>
+              weather.rootSoilTemp < group.minimumSoilTemp &&
+              group.minimumSoilTemp - weather.rootSoilTemp <= 2.5,
+        )
+        .toList();
+
+    final tooCold = plantGroups
+        .where(
+          (group) =>
+              weather.rootSoilTemp < group.minimumSoilTemp &&
+              !nearlyReady.contains(group),
+        )
+        .toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEBF8EF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBFDCC8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _header(context),
+          const SizedBox(height: 12),
+          _metrics(),
+          const SizedBox(height: 12),
+          _summary(plantNow),
+          const SizedBox(height: 10),
+          _groupSection(
+            title: 'Plant now',
+            groups: plantNow,
+            color: const Color(0xFF227A47),
+            emptyText:
+                'No crop groups are fully ready from soil temperature alone.',
+          ),
+          if (nearlyReady.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _groupSection(
+              title: 'Nearly ready',
+              groups: nearlyReady,
+              color: const Color(0xFFA86412),
+              showShortfall: true,
+            ),
+          ],
+          if (tooCold.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _groupSection(
+              title: 'Too cold',
+              groups: tooCold,
+              color: const Color(0xFF9B2C20),
+              showShortfall: true,
+            ),
+          ],
+          const SizedBox(height: 10),
+          _footer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context) {
+    final live = weather.source == 'Live';
+
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(
+          'Live soil-temp planting guide',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: const Color(0xFF1A5C34),
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _statusChip(
+              live ? 'Live' : 'Fallback',
+              live ? const Color(0xFF227A47) : const Color(0xFFA86412),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: loading ? null : refresh,
+              icon: loading
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh, size: 16),
+              label: const Text('Refresh'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _metrics() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _metricCard(
+          'Root zone',
+          '${weather.rootSoilTemp.toStringAsFixed(1)} C',
+          '6 cm soil',
+          true,
+        ),
+        _metricCard(
+          'Surface',
+          '${weather.surfaceSoilTemp.toStringAsFixed(1)} C',
+          '0 cm soil',
+          false,
+        ),
+        _metricCard(
+          'Deep',
+          '${weather.deepSoilTemp.toStringAsFixed(1)} C',
+          '18 cm soil',
+          false,
+        ),
+        _metricCard(
+          'Air',
+          '${weather.airTemp.toStringAsFixed(1)} C',
+          '2 m',
+          false,
+        ),
+        _metricCard('Humidity', '${weather.humidity}%', 'now', false),
+        _metricCard('Wind', '${weather.windKmh} km/h', 'now', false),
+      ],
+    );
+  }
+
+  Widget _summary(List<PlantGroup> plantNow) {
+    final text = plantNow.isEmpty
+        ? 'Soil is cool. Start hardy crops in trays and wait before sowing warm-season crops.'
+        : 'Good to plant now from soil temperature: ${plantNow.map((group) => group.name).join(', ')}.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFBFDCC8)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF1A5C34),
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          height: 1.35,
+        ),
+      ),
+    );
+  }
+
+  Widget _groupSection({
+    required String title,
+    required List<PlantGroup> groups,
+    required Color color,
+    String? emptyText,
+    bool showShortfall = false,
+  }) {
+    if (groups.isEmpty && emptyText != null) {
+      return Text(
+        emptyText,
+        style: const TextStyle(
+          color: Color(0xFF757068),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 6),
+        ...groups.map((group) {
+          final shortfall = (group.minimumSoilTemp - weather.rootSoilTemp)
+              .clamp(0, 99);
+
+          return Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: color.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  showShortfall ? Icons.schedule : Icons.check_circle,
+                  size: 17,
+                  color: color,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                        color: Color(0xFF514B43),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: '${group.name}: ',
+                          style: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        TextSpan(text: group.examples.join(', ')),
+                        TextSpan(text: ' â€” ${group.method}.'),
+                      ],
+                    ),
+                  ),
+                ),
+                if (showShortfall) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '+${shortfall.toStringAsFixed(1)} C',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _footer() {
+    return Text(
+      'Updated: ${weather.updated}. Solar ${weather.solar} W/m2.'
+      '${notice == null ? '' : ' $notice'}',
+      style: const TextStyle(
+        color: Color(0xFF757068),
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        height: 1.35,
+      ),
+    );
+  }
+
+  Widget _statusChip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _metricCard(
+    String label,
+    String value,
+    String detail,
+    bool emphasized,
+  ) {
+    final color = emphasized
+        ? const Color(0xFF227A47)
+        : const Color(0xFFA86412);
+
+    return Container(
+      width: 94,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(
+          color: emphasized ? const Color(0xFFBFDCC8) : const Color(0xFFF0CF9D),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF757068),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            detail,
+            style: const TextStyle(color: Color(0xFF757068), fontSize: 10),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static int _nearestHourIndex(dynamic values) {
+    if (values is! List || values.isEmpty) return 0;
+
+    final now = DateTime.now();
+    var bestIndex = 0;
+    var bestDiff = const Duration(days: 999);
+
+    for (var i = 0; i < values.length; i++) {
+      final raw = values[i];
+      if (raw is! String) continue;
+
+      final parsed = DateTime.tryParse(raw);
+      if (parsed == null) continue;
+
+      final diff = parsed.difference(now).abs();
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIndex = i;
+      }
+    }
+
+    return bestIndex;
+  }
+
+  static double? _numberAt(dynamic values, int index) {
+    if (values is! List || values.isEmpty) return null;
+
+    final safeIndex = index.clamp(0, values.length - 1).toInt();
+    final value = values[safeIndex];
+
+    if (value is num) return value.toDouble();
+    return null;
+  }
+
+  static String _timeLabel() {
+    final now = DateTime.now();
+    final hour = now.hour.toString().padLeft(2, '0');
+    final minute = now.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+}
+
+class _WeatherSnapshot {
+  const _WeatherSnapshot({
+    required this.source,
+    required this.rootSoilTemp,
+    required this.surfaceSoilTemp,
+    required this.deepSoilTemp,
+    required this.airTemp,
+    required this.humidity,
+    required this.windKmh,
+    required this.solar,
+    required this.updated,
+  });
+
+  final String source;
+  final double rootSoilTemp;
+  final double surfaceSoilTemp;
+  final double deepSoilTemp;
+  final double airTemp;
+  final int humidity;
+  final int windKmh;
+  final int solar;
+  final String updated;
+}
+
+class PlantGroup {
+  const PlantGroup({
+    required this.name,
+    required this.minimumSoilTemp,
+    required this.examples,
+    required this.method,
+  });
+
+  final String name;
+  final double minimumSoilTemp;
+  final List<String> examples;
+  final String method;
+}
+
+const List<PlantGroup> plantGroups = [
+  PlantGroup(
+    name: 'brassicas',
+    minimumSoilTemp: 7,
+    examples: ['broccoli', 'kale', 'cabbage', 'cauliflower'],
+    method: 'start in trays or transplant hardened seedlings',
+  ),
+  PlantGroup(
+    name: 'alliums',
+    minimumSoilTemp: 7,
+    examples: ['onion', 'leek', 'garlic', 'spring onion'],
+    method: 'tray or direct sow',
+  ),
+  PlantGroup(
+    name: 'leaf greens',
+    minimumSoilTemp: 8,
+    examples: ['lettuce', 'spinach', 'silverbeet', 'rocket'],
+    method: 'direct sow or tray start',
+  ),
+  PlantGroup(
+    name: 'root veg',
+    minimumSoilTemp: 8,
+    examples: ['carrot', 'beetroot', 'radish', 'parsnip'],
+    method: 'direct sow',
+  ),
+  PlantGroup(
+    name: 'legumes',
+    minimumSoilTemp: 12,
+    examples: ['peas', 'beans'],
+    method: 'wait for warmer root-zone soil',
+  ),
+  PlantGroup(
+    name: 'herbs',
+    minimumSoilTemp: 12,
+    examples: ['basil', 'coriander', 'parsley'],
+    method: 'start sheltered trays if needed',
+  ),
+  PlantGroup(
+    name: 'fruiting crops',
+    minimumSoilTemp: 15,
+    examples: ['tomato', 'capsicum', 'cucumber', 'courgette'],
+    method: 'start warm trays only',
+  ),
+];

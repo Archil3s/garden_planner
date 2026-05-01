@@ -1,0 +1,4759 @@
+﻿Garden Planner Focus Snapshot
+Generated: 04/24/2026 18:47:59
+Working directory: C:\Users\Danie\garden_planner
+
+============================================================
+DART ANALYZE OUTPUT
+============================================================
+
+Analyzing planner, core, main.dart...
+
+   info - lib\features\planner\ui\garden_screen.dart:1222:45 - Unnecessary use of multiple underscores. Try using '_'. - unnecessary_underscores
+   info - lib\features\planner\ui\garden_screen.dart:1492:15 - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - lib\features\planner\ui\widgets\plant_picker_panel.dart:85:45 - Unnecessary use of multiple underscores. Try using '_'. - unnecessary_underscores
+   info - lib\features\planner\ui\widgets\plant_picker_panel.dart:333:9 - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+
+4 issues found.
+
+
+============================================================
+FILE: lib\features\planner\ui\garden_screen.dart
+============================================================
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../../core/models/bed.dart';
+import '../../../core/theme/garden_theme.dart';
+import '../canvas/grid_painter.dart';
+import '../controller/garden_controller.dart';
+import '../services/project_storage_service.dart';
+import 'widgets/add_bed_dialog.dart';
+import 'widgets/bed_inspector.dart';
+import 'widgets/draggable_bed.dart';
+import 'widgets/planner_dashboard_overview.dart';
+import 'widgets/planner_legend.dart';
+import 'widgets/planner_toolbar.dart';
+import 'widgets/project_settings_dialog.dart';
+import 'widgets/seedlings_view.dart';
+
+class GardenScreen extends StatefulWidget {
+  const GardenScreen({super.key});
+
+  @override
+  State<GardenScreen> createState() => _GardenScreenState();
+}
+
+class _GardenScreenState extends State<GardenScreen> {
+  final GardenController controller = GardenController();
+  final ProjectStorageService storageService = ProjectStorageService();
+
+  static const double basePixelsPerMeter = 32;
+  static const double minZoom = 0.5;
+  static const double maxZoom = 1.75;
+  static const double zoomStep = 0.25;
+
+  double zoom = 1.0;
+  BedViewMode viewMode = BedViewMode.dashboard;
+  BedFilterMode filterMode = BedFilterMode.all;
+  String searchQuery = '';
+
+  double get pixelsPerMeter => basePixelsPerMeter * zoom;
+
+  int get zoomPercent => (zoom * 100).round();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProjectOnStartup();
+  }
+
+  Future<void> _loadProjectOnStartup() async {
+    try {
+      final project = await storageService.loadProject();
+
+      if (!mounted || project == null) return;
+
+      controller.loadProject(project);
+    } catch (_) {
+      // Keep demo project if saved browser data is missing or invalid.
+    }
+  }
+
+  void _setViewMode(BedViewMode mode) {
+    if (viewMode == mode) return;
+
+    setState(() {
+      viewMode = mode;
+    });
+  }
+
+  void _setSearchQuery(String value) {
+    setState(() {
+      searchQuery = value;
+    });
+  }
+
+  void _setFilterMode(BedFilterMode value) {
+    setState(() {
+      filterMode = value;
+    });
+  }
+
+  void _zoomIn() {
+    setState(() {
+      zoom = (zoom + zoomStep).clamp(minZoom, maxZoom).toDouble();
+    });
+  }
+
+  void _zoomOut() {
+    setState(() {
+      zoom = (zoom - zoomStep).clamp(minZoom, maxZoom).toDouble();
+    });
+  }
+
+  void _resetZoom() {
+    setState(() {
+      zoom = 1.0;
+    });
+  }
+
+  Future<void> _openAddBedDialog() async {
+    final result = await showDialog<AddBedDialogResult>(
+      context: context,
+      builder: (context) {
+        return AddBedDialog(nextNumber: controller.beds.length + 1);
+      },
+    );
+
+    if (result == null) return;
+
+    controller.addCustomBed(
+      name: result.name,
+      zone: result.zone,
+      width: result.width,
+      height: result.height,
+      crops: result.crops,
+      status: result.status,
+    );
+
+    setState(() {
+      viewMode = BedViewMode.map;
+    });
+  }
+
+  Future<void> _openProjectSettingsDialog() async {
+    final result = await showDialog<ProjectSettingsResult>(
+      context: context,
+      builder: (context) {
+        return ProjectSettingsDialog(project: controller.project);
+      },
+    );
+
+    if (result == null) return;
+
+    controller.updateProjectSettings(
+      name: result.name,
+      widthMeters: result.widthMeters,
+      heightMeters: result.heightMeters,
+      locationName: result.locationName,
+      latitude: result.latitude,
+      longitude: result.longitude,
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Project settings updated.')));
+  }
+
+  Future<void> _saveProject() async {
+    await storageService.saveProject(controller.project);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Project saved to browser storage.')),
+    );
+  }
+
+  Future<void> _loadProject() async {
+    try {
+      final project = await storageService.loadProject();
+
+      if (!mounted) return;
+
+      if (project == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No saved project found.')),
+        );
+        return;
+      }
+
+      controller.loadProject(project);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Project loaded from browser storage.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: GardenTheme.panel,
+            title: const Text('Load failed'),
+            content: Text(error.toString()),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _clearSavedProject() async {
+    await storageService.clearProject();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Saved browser project cleared. Current layout unchanged.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _resetDemoProject() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: GardenTheme.panel,
+          title: const Text('Reset to demo project?'),
+          content: const Text(
+            'This will replace the current visible project with the demo layout. It will not overwrite browser storage unless you click Save afterward.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Reset Demo'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    controller.resetToDemoProject();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Demo project restored. Click Save to persist it.'),
+      ),
+    );
+  }
+
+  Future<void> _exportProjectJson() async {
+    final json = controller.exportProjectJson();
+
+    await Clipboard.setData(ClipboardData(text: json));
+
+    if (!mounted) return;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: GardenTheme.panel,
+          title: const Text('Project JSON copied'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                json,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _importProjectJson() async {
+    final textController = TextEditingController();
+
+    final rawJson = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: GardenTheme.panel,
+          title: const Text('Import Project JSON'),
+          content: SizedBox(
+            width: 620,
+            height: 420,
+            child: TextField(
+              controller: textController,
+              expands: true,
+              maxLines: null,
+              minLines: null,
+              keyboardType: TextInputType.multiline,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              decoration: InputDecoration(
+                hintText: 'Paste exported project JSON here',
+                filled: true,
+                fillColor: GardenTheme.paper,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: GardenTheme.border),
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop(textController.text);
+              },
+              child: const Text('Import'),
+            ),
+          ],
+        );
+      },
+    );
+
+    textController.dispose();
+
+    if (rawJson == null || rawJson.trim().isEmpty) return;
+
+    try {
+      controller.loadProjectFromJson(rawJson.trim());
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Project JSON imported.')));
+    } catch (error) {
+      if (!mounted) return;
+
+      showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: GardenTheme.panel,
+            title: const Text('Import failed'),
+            content: Text(error.toString()),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+
+  List<Bed> _filteredBeds() {
+    final query = _safeText(searchQuery).toLowerCase();
+
+    return controller.beds.where((bed) {
+      final name = _safeText(bed.name).toLowerCase();
+      final zone = _safeText(bed.zone).toLowerCase();
+      final status = _safeText(bed.status.name).toLowerCase();
+
+      final cropText = bed.crops
+          .map(_safeText)
+          .where((crop) => crop.isNotEmpty)
+          .join(' ')
+          .toLowerCase();
+
+      final matchesQuery =
+          query.isEmpty ||
+          name.contains(query) ||
+          zone.contains(query) ||
+          status.contains(query) ||
+          cropText.contains(query);
+
+      if (!matchesQuery) return false;
+
+      switch (filterMode) {
+        case BedFilterMode.all:
+          return true;
+        case BedFilterMode.healthy:
+          return bed.status == BedStatus.ok;
+        case BedFilterMode.attention:
+          return bed.status == BedStatus.warning;
+        case BedFilterMode.issues:
+          return bed.status == BedStatus.bad || bed.status == BedStatus.hold;
+        case BedFilterMode.withCrops:
+          return bed.crops.isNotEmpty ||
+              bed.cropPlacements.isNotEmpty ||
+              bed.cropBlocks.isNotEmpty;
+      }
+    }).toList();
+  }
+
+  String _safeText(Object? value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
+  void _openBedDetails(Bed bed) {
+    controller.selectBed(bed.id);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: GardenTheme.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (context) {
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            return SizedBox(
+              height: MediaQuery.of(context).size.height * 0.86,
+              child: BedInspector(
+                bed: controller.selectedBed,
+                onNameChanged: controller.updateSelectedBedName,
+                onZoneChanged: controller.updateSelectedBedZone,
+                onWidthChanged: controller.updateSelectedBedWidth,
+                onHeightChanged: controller.updateSelectedBedHeight,
+                onCropsChanged: controller.updateSelectedBedCropsFromText,
+                onRemoveCrop: controller.removeCropFromSelectedBed,
+                onPlantCrop: controller.addCropPlacementToSelectedBed,
+                onPlaceCropRow: controller.addCropBlockToSelectedBed,
+                onStatusChanged: controller.updateSelectedBedStatus,
+                onHealthChanged: controller.updateSelectedBedHealth,
+                width: null,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canvasWidth = controller.project.widthMeters * pixelsPerMeter;
+    final canvasHeight = controller.project.heightMeters * pixelsPerMeter;
+
+    return Scaffold(
+      backgroundColor: GardenTheme.cream,
+      appBar: AppBar(
+        title: Text(
+          _safeText(controller.project.name).isEmpty
+              ? 'Garden Planner'
+              : _safeText(controller.project.name),
+        ),
+        backgroundColor: GardenTheme.paper,
+        foregroundColor: GardenTheme.ink,
+        elevation: 0,
+      ),
+      body: AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) {
+          final visibleBeds = _filteredBeds();
+
+          return Padding(
+            padding: EdgeInsets.all(
+              MediaQuery.of(context).size.width < 700 ? 6 : 12,
+            ),
+            child: Container(
+              decoration: GardenTheme.panelDecoration(),
+              clipBehavior: Clip.hardEdge,
+              child: Column(
+                children: [
+                  PlannerToolbar(
+                    viewMode: viewMode,
+                    onViewModeChanged: _setViewMode,
+                    searchQuery: searchQuery,
+                    onSearchChanged: _setSearchQuery,
+                    filterMode: filterMode,
+                    onFilterModeChanged: _setFilterMode,
+                    onAddBed: _openAddBedDialog,
+                    onOpenSettings: _openProjectSettingsDialog,
+                    onSaveProject: _saveProject,
+                    onLoadProject: _loadProject,
+                    onImportJson: _importProjectJson,
+                    onExportJson: _exportProjectJson,
+                    onClearSavedProject: _clearSavedProject,
+                    onResetDemoProject: _resetDemoProject,
+                    onUndo: controller.canUndo ? controller.undo : null,
+                    onRedo: controller.canRedo ? controller.redo : null,
+                    allowOverlap: controller.allowOverlap,
+                    onAllowOverlapChanged: controller.toggleAllowOverlap,
+                    zoomPercent: zoomPercent,
+                    onZoomIn: _zoomIn,
+                    onZoomOut: _zoomOut,
+                    onResetZoom: _resetZoom,
+                    onDeleteSelected: controller.selectedBed == null
+                        ? null
+                        : controller.deleteSelectedBed,
+                  ),
+                  Expanded(
+                    child: _CurrentArea(
+                      viewMode: viewMode,
+                      controller: controller,
+                      visibleBeds: visibleBeds,
+                      canvasWidth: canvasWidth,
+                      canvasHeight: canvasHeight,
+                      pixelsPerMeter: pixelsPerMeter,
+                      onOpenBedDetails: _openBedDetails,
+                      onOpenMapView: () => _setViewMode(BedViewMode.map),
+                    ),
+                  ),
+                  if (viewMode == BedViewMode.map) const PlannerLegend(),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CurrentArea extends StatelessWidget {
+  const _CurrentArea({
+    required this.viewMode,
+    required this.controller,
+    required this.visibleBeds,
+    required this.canvasWidth,
+    required this.canvasHeight,
+    required this.pixelsPerMeter,
+    required this.onOpenBedDetails,
+    required this.onOpenMapView,
+  });
+
+  final BedViewMode viewMode;
+  final GardenController controller;
+  final List<Bed> visibleBeds;
+  final double canvasWidth;
+  final double canvasHeight;
+  final double pixelsPerMeter;
+  final ValueChanged<Bed> onOpenBedDetails;
+  final VoidCallback onOpenMapView;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (viewMode) {
+      case BedViewMode.dashboard:
+        return PlannerDashboardOverview(
+          beds: controller.beds,
+          overlapCount: controller.overlapCount,
+          showWeather: true,
+          locationName: controller.project.locationName,
+          latitude: controller.project.latitude,
+          longitude: controller.project.longitude,
+        );
+      case BedViewMode.seedlings:
+        return SeedlingsView(
+          seedlings: controller.seedlings,
+          beds: controller.beds,
+          onAddSeedling: controller.addSeedling,
+          onUpdateSeedling: controller.updateSeedling,
+          onDeleteSeedling: controller.deleteSeedling,
+          onTransplantSeedling: controller.transplantSeedlingToBed,
+          onOpenMapView: onOpenMapView,
+        );
+      case BedViewMode.map:
+        return _MapView(
+          controller: controller,
+          beds: visibleBeds,
+          canvasWidth: canvasWidth,
+          canvasHeight: canvasHeight,
+          pixelsPerMeter: pixelsPerMeter,
+          onOpenBedDetails: onOpenBedDetails,
+        );
+      case BedViewMode.cards:
+        return _CardsView(
+          beds: visibleBeds,
+          onOpenBedDetails: onOpenBedDetails,
+        );
+    }
+  }
+}
+
+class _MapView extends StatefulWidget {
+  const _MapView({
+    required this.controller,
+    required this.beds,
+    required this.canvasWidth,
+    required this.canvasHeight,
+    required this.pixelsPerMeter,
+    required this.onOpenBedDetails,
+  });
+
+  final GardenController controller;
+  final List<Bed> beds;
+  final double canvasWidth;
+  final double canvasHeight;
+  final double pixelsPerMeter;
+  final ValueChanged<Bed> onOpenBedDetails;
+
+  @override
+  State<_MapView> createState() => _MapViewState();
+}
+
+class _MapViewState extends State<_MapView> {
+  final ScrollController horizontalController = ScrollController();
+  final ScrollController verticalController = ScrollController();
+
+  String? activePlantName;
+  Offset? rowStartGarden;
+  Offset? rowCurrentGarden;
+  Bed? rowBed;
+
+  @override
+  void dispose() {
+    horizontalController.dispose();
+    verticalController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final selectedBed = widget.controller.selectedBed;
+        final designerBed =
+            selectedBed ?? (widget.beds.isNotEmpty ? widget.beds.first : null);
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 372,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: GardenTheme.paper,
+                  border: Border(right: BorderSide(color: GardenTheme.border)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+                  child: designerBed == null
+                      ? _NoBedDesignerPanel(controller: widget.controller)
+                      : _BedPlantDesignerPanel(
+                          bed: designerBed,
+                          controller: widget.controller,
+                          onClose: widget.controller.clearSelection,
+                          activePlantName: activePlantName,
+                          onPlantChosen: _selectPlantForRow,
+                        ),
+                ),
+              ),
+            ),
+            Expanded(child: _mapCanvasArea()),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _mapCanvasArea() {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Scrollbar(
+            controller: horizontalController,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: Scrollbar(
+                controller: verticalController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: verticalController,
+                  child: Center(
+                    child: SizedBox(
+                      width: widget.canvasWidth,
+                      height: widget.canvasHeight,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: RepaintBoundary(
+                              child: CustomPaint(
+                                painter: GridPainter(
+                                  metersWide:
+                                      widget.controller.project.widthMeters,
+                                  metersHigh:
+                                      widget.controller.project.heightMeters,
+                                  pixelsPerMeter: widget.pixelsPerMeter,
+                                ),
+                              ),
+                            ),
+                          ),
+                          for (final bed in widget.beds)
+                            DraggableBed(
+                              key: ValueKey(bed.id),
+                              bed: bed,
+                              selected:
+                                  widget.controller.selectedBedId == bed.id,
+                              pixelsPerMeter: widget.pixelsPerMeter,
+                              controller: widget.controller,
+                              onOpenDetails: () {
+                                widget.controller.selectBed(bed.id);
+                              },
+                            ),
+                          if (activePlantName != null)
+                            Positioned.fill(
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.precise,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onTapUp: _placeShortRowAtTap,
+                                  onPanStart: _startRowDrawing,
+                                  onPanUpdate: _updateRowDrawing,
+                                  onPanEnd: _finishRowDrawing,
+                                  onPanCancel: _cancelRowDrawing,
+                                  child: CustomPaint(
+                                    painter: _CropRowDraftPainter(
+                                      cropName: activePlantName,
+                                      startGarden: rowStartGarden,
+                                      currentGarden: rowCurrentGarden,
+                                      bed: rowBed,
+                                      pixelsPerMeter: widget.pixelsPerMeter,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 18,
+          bottom: 18,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              decoration: BoxDecoration(
+                color: GardenTheme.panel.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: GardenTheme.border),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x16000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.touch_app_outlined,
+                    color: GardenTheme.muted,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    activePlantName == null
+                        ? 'Choose a plant from the left panel.'
+                        : 'Planting $activePlantName: drag inside a bed to draw a row.',
+                    style: const TextStyle(
+                      color: GardenTheme.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _selectPlantForRow(String cropName) {
+    setState(() {
+      activePlantName = cropName;
+      rowStartGarden = null;
+      rowCurrentGarden = null;
+      rowBed = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$cropName selected. Drag inside a bed to draw a row.'),
+      ),
+    );
+  }
+
+  void _placeShortRowAtTap(TapUpDetails details) {
+    final cropName = activePlantName;
+    if (cropName == null) return;
+
+    final point = _gardenPointFromPixels(details.localPosition);
+    final bed = _bedAt(point);
+
+    if (bed == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Click inside a bed to place a row.')),
+      );
+      return;
+    }
+
+    widget.controller.addCropRowToBedRect(
+      bedId: bed.id,
+      cropName: cropName,
+      startX: point.dx - 1.2,
+      startY: point.dy,
+      endX: point.dx + 1.2,
+      endY: point.dy,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$cropName row added to ${bed.name}.')),
+    );
+  }
+
+  void _startRowDrawing(DragStartDetails details) {
+    final cropName = activePlantName;
+    if (cropName == null) return;
+
+    final point = _gardenPointFromPixels(details.localPosition);
+    final bed = _bedAt(point);
+
+    if (bed == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Start the row inside a bed.')),
+      );
+      return;
+    }
+
+    widget.controller.selectBed(bed.id);
+
+    setState(() {
+      rowStartGarden = point;
+      rowCurrentGarden = point;
+      rowBed = bed;
+    });
+  }
+
+  void _updateRowDrawing(DragUpdateDetails details) {
+    if (rowStartGarden == null) return;
+
+    setState(() {
+      rowCurrentGarden = _gardenPointFromPixels(details.localPosition);
+    });
+  }
+
+  void _finishRowDrawing(DragEndDetails details) {
+    final cropName = activePlantName;
+    final start = rowStartGarden;
+    final current = rowCurrentGarden;
+    final bed = rowBed;
+
+    if (cropName == null || start == null || current == null || bed == null) {
+      _cancelRowDrawing();
+      return;
+    }
+
+    widget.controller.addCropRowToBedRect(
+      bedId: bed.id,
+      cropName: cropName,
+      startX: start.dx,
+      startY: start.dy,
+      endX: current.dx,
+      endY: current.dy,
+    );
+
+    setState(() {
+      rowStartGarden = null;
+      rowCurrentGarden = null;
+      rowBed = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$cropName row added to ${bed.name}.')),
+    );
+  }
+
+  void _cancelRowDrawing() {
+    setState(() {
+      rowStartGarden = null;
+      rowCurrentGarden = null;
+      rowBed = null;
+    });
+  }
+
+  Offset _gardenPointFromPixels(Offset pixelPoint) {
+    return Offset(
+      pixelPoint.dx / widget.pixelsPerMeter,
+      pixelPoint.dy / widget.pixelsPerMeter,
+    );
+  }
+
+  Bed? _bedAt(Offset gardenPoint) {
+    for (final bed in widget.beds.reversed) {
+      final insideX =
+          gardenPoint.dx >= bed.x && gardenPoint.dx <= bed.x + bed.width;
+
+      final insideY =
+          gardenPoint.dy >= bed.y && gardenPoint.dy <= bed.y + bed.height;
+
+      if (insideX && insideY) {
+        return bed;
+      }
+    }
+
+    return null;
+  }
+}
+
+class _CropRowDraftPainter extends CustomPainter {
+  const _CropRowDraftPainter({
+    required this.cropName,
+    required this.startGarden,
+    required this.currentGarden,
+    required this.bed,
+    required this.pixelsPerMeter,
+  });
+
+  final String? cropName;
+  final Offset? startGarden;
+  final Offset? currentGarden;
+  final Bed? bed;
+  final double pixelsPerMeter;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final name = cropName;
+    final start = startGarden;
+    final current = currentGarden;
+    final targetBed = bed;
+
+    if (name == null || start == null || current == null || targetBed == null) {
+      return;
+    }
+
+    final rect = _previewRect(targetBed, start, current);
+
+    final pixelRect = Rect.fromLTWH(
+      rect.left * pixelsPerMeter,
+      rect.top * pixelsPerMeter,
+      rect.width * pixelsPerMeter,
+      rect.height * pixelsPerMeter,
+    );
+
+    final rrect = RRect.fromRectAndRadius(pixelRect, const Radius.circular(18));
+
+    final fillPaint = Paint()
+      ..color = const Color(0xFFD8D8D8).withValues(alpha: 0.72)
+      ..style = PaintingStyle.fill;
+
+    final borderPaint = Paint()
+      ..color = GardenTheme.good
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawRRect(rrect, fillPaint);
+    canvas.drawRRect(rrect, borderPaint);
+
+    final labelPainter = TextPainter(
+      text: TextSpan(
+        text: name,
+        style: const TextStyle(
+          color: GardenTheme.ink,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: pixelRect.width - 16);
+
+    final labelRect = Rect.fromCenter(
+      center: pixelRect.center,
+      width: labelPainter.width + 18,
+      height: 25,
+    );
+
+    final labelPaint = Paint()
+      ..color = GardenTheme.panel.withValues(alpha: 0.95)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(labelRect, const Radius.circular(8)),
+      labelPaint,
+    );
+
+    labelPainter.paint(
+      canvas,
+      Offset(
+        labelRect.left + 9,
+        labelRect.top + (labelRect.height - labelPainter.height) / 2,
+      ),
+    );
+  }
+
+  Rect _previewRect(Bed bed, Offset start, Offset current) {
+    final dx = (current.dx - start.dx).abs();
+    final dy = (current.dy - start.dy).abs();
+    final horizontal = dx >= dy;
+
+    const thickness = 1.1;
+    final centerX = (start.dx + current.dx) / 2;
+    final centerY = (start.dy + current.dy) / 2;
+
+    if (horizontal) {
+      final width = dx < 0.8 ? 2.4 : dx;
+      final left = (centerX - width / 2).clamp(
+        bed.x,
+        bed.x + bed.width - width,
+      );
+      final top = (centerY - thickness / 2).clamp(
+        bed.y,
+        bed.y + bed.height - thickness,
+      );
+
+      return Rect.fromLTWH(left, top, width, thickness);
+    }
+
+    final height = dy < 0.8 ? 2.4 : dy;
+    final left = (centerX - thickness / 2).clamp(
+      bed.x,
+      bed.x + bed.width - thickness,
+    );
+    final top = (centerY - height / 2).clamp(
+      bed.y,
+      bed.y + bed.height - height,
+    );
+
+    return Rect.fromLTWH(left, top, thickness, height);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CropRowDraftPainter oldDelegate) {
+    return oldDelegate.cropName != cropName ||
+        oldDelegate.startGarden != startGarden ||
+        oldDelegate.currentGarden != currentGarden ||
+        oldDelegate.bed != bed ||
+        oldDelegate.pixelsPerMeter != pixelsPerMeter;
+  }
+}
+
+class _NoBedDesignerPanel extends StatelessWidget {
+  const _NoBedDesignerPanel({required this.controller});
+
+  final GardenController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: GardenTheme.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x18000000),
+              blurRadius: 16,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(18),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.local_florist, color: GardenTheme.good, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Bed Plant Designer',
+                    style: TextStyle(
+                      color: GardenTheme.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 18),
+            Text(
+              'No bed selected',
+              style: TextStyle(
+                color: GardenTheme.ink,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            SizedBox(height: 7),
+            Text(
+              'Click a bed on the map to choose plants and add crop rows.',
+              style: TextStyle(
+                color: GardenTheme.muted,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BedPlantDesignerPanel extends StatefulWidget {
+  const _BedPlantDesignerPanel({
+    required this.bed,
+    required this.controller,
+    required this.onClose,
+    required this.activePlantName,
+    required this.onPlantChosen,
+  });
+
+  final Bed bed;
+  final GardenController controller;
+  final VoidCallback onClose;
+  final String? activePlantName;
+  final ValueChanged<String> onPlantChosen;
+
+  @override
+  State<_BedPlantDesignerPanel> createState() => _BedPlantDesignerPanelState();
+}
+
+class _BedPlantDesignerPanelState extends State<_BedPlantDesignerPanel> {
+  final TextEditingController searchController = TextEditingController();
+
+  String typeFilter = 'All Plants';
+  bool includePerennials = true;
+  bool seedInventoryOnly = false;
+  bool favoritesOnly = false;
+
+  final Set<String> favorites = <String>{};
+
+  bool collapsed = false;
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (collapsed) {
+      return _collapsedSidebar();
+    }
+
+    final plants = _filteredPlants();
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 340,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: GardenTheme.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x30000000),
+              blurRadius: 26,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Column(
+          children: [
+            _header(),
+            _bedSummary(),
+            _filters(),
+            Expanded(
+              child: plants.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(18),
+                        child: Text(
+                          'No plants match these filters.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: GardenTheme.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: EdgeInsets.zero,
+                      itemCount: plants.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        color: GardenTheme.border.withValues(alpha: 0.45),
+                      ),
+                      itemBuilder: (context, index) {
+                        return _plantTile(plants[index]);
+                      },
+                    ),
+            ),
+            _existingRows(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _collapsedSidebar() {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 56,
+        decoration: BoxDecoration(
+          color: GardenTheme.ink,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: GardenTheme.border.withValues(alpha: 0.35)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x30000000),
+              blurRadius: 20,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Column(
+          children: [
+            IconButton(
+              tooltip: 'Close designer',
+              onPressed: widget.onClose,
+              icon: const Icon(Icons.close, color: GardenTheme.cream, size: 18),
+            ),
+            Expanded(
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    collapsed = false;
+                  });
+                },
+                child: const RotatedBox(
+                  quarterTurns: 1,
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.local_florist,
+                          color: GardenTheme.cream,
+                          size: 17,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Plants',
+                          style: TextStyle(
+                            color: GardenTheme.cream,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Expand designer',
+              onPressed: () {
+                setState(() {
+                  collapsed = false;
+                });
+              },
+              icon: const Icon(
+                Icons.chevron_left,
+                color: GardenTheme.cream,
+                size: 22,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header() {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF7FAF7),
+        border: Border(bottom: BorderSide(color: GardenTheme.border)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.local_florist, color: GardenTheme.good, size: 18),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Bed Plant Designer',
+              style: TextStyle(
+                color: GardenTheme.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Collapse sidebar',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+            onPressed: () {
+              setState(() {
+                collapsed = true;
+              });
+            },
+            icon: const Icon(
+              Icons.chevron_right,
+              color: GardenTheme.muted,
+              size: 21,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Close panel',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+            onPressed: widget.onClose,
+            icon: const Icon(Icons.close, color: GardenTheme.muted, size: 19),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bedSummary() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 10),
+      decoration: const BoxDecoration(
+        color: GardenTheme.paper,
+        border: Border(bottom: BorderSide(color: GardenTheme.border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.bed.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.bed.width.toStringAsFixed(1)}m x ${widget.bed.height.toStringAsFixed(1)}m - ${widget.bed.zone}',
+            style: const TextStyle(
+              color: GardenTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              if (widget.bed.crops.isEmpty)
+                _smallChip('No crops yet', GardenTheme.muted)
+              else
+                for (final crop in widget.bed.crops.take(6))
+                  _smallChip(crop, GardenTheme.good),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filters() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(11, 10, 11, 9),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: GardenTheme.border)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Plants',
+                style: TextStyle(
+                  color: GardenTheme.ink,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              _smallButton('Reset', _reset),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 32,
+            child: TextField(
+              controller: searchController,
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              decoration: InputDecoration(
+                hintText: 'Search plants',
+                hintStyle: const TextStyle(
+                  color: GardenTheme.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                isDense: true,
+                suffixIcon: searchController.text.isEmpty
+                    ? const Icon(
+                        Icons.search,
+                        size: 15,
+                        color: GardenTheme.muted,
+                      )
+                    : IconButton(
+                        padding: EdgeInsets.zero,
+                        icon: const Icon(
+                          Icons.close,
+                          size: 15,
+                          color: GardenTheme.muted,
+                        ),
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {});
+                        },
+                      ),
+                filled: true,
+                fillColor: const Color(0xFFFBFBFA),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 8,
+                ),
+                border: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                  borderSide: BorderSide(color: GardenTheme.border),
+                ),
+                enabledBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                  borderSide: BorderSide(color: GardenTheme.border),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                  borderSide: BorderSide(color: GardenTheme.good, width: 1.3),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 32,
+            child: DropdownButtonFormField<String>(
+              value: typeFilter,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Type',
+                labelStyle: TextStyle(
+                  color: GardenTheme.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+                filled: true,
+                fillColor: Color(0xFFFBFBFA),
+                contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                  borderSide: BorderSide(color: GardenTheme.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                  borderSide: BorderSide(color: GardenTheme.border),
+                ),
+              ),
+              style: const TextStyle(
+                color: GardenTheme.ink,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'All Plants',
+                  child: Text('All Plants'),
+                ),
+                DropdownMenuItem(
+                  value: 'Vegetables',
+                  child: Text('Vegetables'),
+                ),
+                DropdownMenuItem(value: 'Fruit', child: Text('Fruit')),
+                DropdownMenuItem(value: 'Herbs', child: Text('Herbs')),
+                DropdownMenuItem(value: 'Flowers', child: Text('Flowers')),
+                DropdownMenuItem(
+                  value: 'Perennials',
+                  child: Text('Perennials'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+
+                setState(() {
+                  typeFilter = value;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: _checkboxLine(
+                  label: 'Favorites',
+                  value: favoritesOnly,
+                  onChanged: (value) {
+                    setState(() {
+                      favoritesOnly = value;
+                    });
+                  },
+                ),
+              ),
+              Expanded(
+                child: _checkboxLine(
+                  label: 'Perennials',
+                  value: includePerennials,
+                  onChanged: (value) {
+                    setState(() {
+                      includePerennials = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          _checkboxLine(
+            label: 'Available in Seed Inventory',
+            value: seedInventoryOnly,
+            onChanged: (value) {
+              setState(() {
+                seedInventoryOnly = value;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plantTile(_PlantEntry plant) {
+    final favorite = favorites.contains(plant.name);
+
+    final tile = InkWell(
+      onTap: () => _addPlant(plant),
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 32,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                icon: Icon(
+                  favorite ? Icons.star : Icons.star_border,
+                  size: 17,
+                  color: favorite
+                      ? GardenTheme.warn
+                      : GardenTheme.border.withValues(alpha: 0.95),
+                ),
+                onPressed: () {
+                  setState(() {
+                    if (favorite) {
+                      favorites.remove(plant.name);
+                    } else {
+                      favorites.add(plant.name);
+                    }
+                  });
+                },
+              ),
+            ),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: plant.perennial
+                      ? GardenTheme.good
+                      : GardenTheme.border,
+                  width: plant.perennial ? 2.2 : 1.5,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x16000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(plant.emoji, style: const TextStyle(fontSize: 20)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                plant.name,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF5D5D5D),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            if (plant.perennial)
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF8EE),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: const Text(
+                  'Perennial',
+                  style: TextStyle(
+                    color: GardenTheme.good,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Icon(
+                Icons.drag_indicator,
+                color: GardenTheme.muted,
+                size: 17,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return LongPressDraggable<String>(
+      data: plant.name,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 210,
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+          decoration: BoxDecoration(
+            color: GardenTheme.ink,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x44000000),
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(plant.emoji, style: const TextStyle(fontSize: 19)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  plant.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: GardenTheme.cream,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.42, child: tile),
+      child: tile,
+    );
+  }
+
+  Widget _existingRows() {
+    final blocks = widget.controller.selectedBed?.cropBlocks ?? const [];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF7FAF7),
+        border: Border(top: BorderSide(color: GardenTheme.border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Crop rows in this bed',
+            style: TextStyle(
+              color: GardenTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (blocks.isEmpty)
+            const Text(
+              'Click a plant above, then drag inside the bed to draw its row.',
+              style: TextStyle(
+                color: GardenTheme.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final block in blocks)
+                  _smallChip(block.cropName, GardenTheme.ink),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _smallChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _smallButton(String label, VoidCallback onPressed) {
+    return SizedBox(
+      height: 25,
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+          side: const BorderSide(color: GardenTheme.border),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+        onPressed: onPressed,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: GardenTheme.good,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _checkboxLine({
+    required String label,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      child: SizedBox(
+        height: 25,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: Checkbox(
+                value: value,
+                onChanged: (next) => onChanged(next ?? false),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            const SizedBox(width: 3),
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: GardenTheme.ink,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _reset() {
+    setState(() {
+      searchController.clear();
+      typeFilter = 'All Plants';
+      includePerennials = true;
+      seedInventoryOnly = false;
+      favoritesOnly = false;
+    });
+  }
+
+  void _addPlant(_PlantEntry plant) {
+    widget.controller.selectBed(widget.bed.id);
+    widget.controller.addCropBlockToSelectedBed(plant.name);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${plant.name} added to ${widget.bed.name}.')),
+    );
+
+    setState(() {});
+  }
+
+  List<_PlantEntry> _filteredPlants() {
+    final query = searchController.text.trim().toLowerCase();
+
+    return _plants.where((plant) {
+      if (!includePerennials && plant.perennial) return false;
+      if (favoritesOnly && !favorites.contains(plant.name)) return false;
+      if (seedInventoryOnly && !plant.inSeedInventory) return false;
+
+      if (typeFilter == 'Perennials' && !plant.perennial) return false;
+
+      if (typeFilter != 'All Plants' && typeFilter != 'Perennials') {
+        if (plant.type != typeFilter) return false;
+      }
+
+      if (query.isNotEmpty) {
+        final text = '${plant.name} ${plant.type} ${plant.category}'
+            .toLowerCase();
+
+        if (!text.contains(query)) return false;
+      }
+
+      return true;
+    }).toList();
+  }
+}
+
+class _PlantEntry {
+  const _PlantEntry({
+    required this.name,
+    required this.emoji,
+    required this.type,
+    required this.category,
+    this.perennial = false,
+    this.inSeedInventory = false,
+  });
+
+  final String name;
+  final String emoji;
+  final String type;
+  final String category;
+  final bool perennial;
+  final bool inSeedInventory;
+}
+
+const List<_PlantEntry> _plants = [
+  _PlantEntry(
+    name: 'Agastache',
+    emoji: '\u{1F33F}',
+    type: 'Flowers',
+    category: 'Flower',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Ageratum',
+    emoji: '\u{1F7E3}',
+    type: 'Flowers',
+    category: 'Flower',
+  ),
+  _PlantEntry(
+    name: 'Allium (Ornamental)',
+    emoji: '\u{1F33A}',
+    type: 'Flowers',
+    category: 'Allium',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Almond',
+    emoji: '\u{1F333}',
+    type: 'Fruit',
+    category: 'Tree',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Alyssum',
+    emoji: '\u{1F33C}',
+    type: 'Flowers',
+    category: 'Flower',
+  ),
+  _PlantEntry(
+    name: 'Amaranth',
+    emoji: '\u{1F33F}',
+    type: 'Vegetables',
+    category: 'Leafy',
+  ),
+  _PlantEntry(
+    name: 'Apple (Dwarf)',
+    emoji: '\u{1F34E}',
+    type: 'Fruit',
+    category: 'Tree',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Apple (Large)',
+    emoji: '\u{1F34E}',
+    type: 'Fruit',
+    category: 'Tree',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Apricot (Dwarf)',
+    emoji: '\u{1F34A}',
+    type: 'Fruit',
+    category: 'Tree',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Artichoke (Globe)',
+    emoji: '\u{1F33F}',
+    type: 'Vegetables',
+    category: 'Perennial',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Asparagus',
+    emoji: '\u{1F33F}',
+    type: 'Vegetables',
+    category: 'Perennial',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Basil',
+    emoji: '\u{1F33F}',
+    type: 'Herbs',
+    category: 'Herb',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Beans',
+    emoji: '\u{1FAD8}',
+    type: 'Vegetables',
+    category: 'Legume',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Beetroot',
+    emoji: '\u{1F331}',
+    type: 'Vegetables',
+    category: 'Root',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Broccoli',
+    emoji: '\u{1F966}',
+    type: 'Vegetables',
+    category: 'Brassica',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Capsicum',
+    emoji: '\u{1FAD1}',
+    type: 'Vegetables',
+    category: 'Fruiting',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Carrot',
+    emoji: '\u{1F955}',
+    type: 'Vegetables',
+    category: 'Root',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Chilli',
+    emoji: '\u{1F336}\u{FE0F}',
+    type: 'Vegetables',
+    category: 'Fruiting',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Cucumber',
+    emoji: '\u{1F952}',
+    type: 'Vegetables',
+    category: 'Cucurbit',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Eggplant',
+    emoji: '\u{1F346}',
+    type: 'Vegetables',
+    category: 'Fruiting',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Garlic',
+    emoji: '\u{1F9C4}',
+    type: 'Vegetables',
+    category: 'Allium',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Lettuce',
+    emoji: '\u{1F96C}',
+    type: 'Vegetables',
+    category: 'Leafy',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Onion',
+    emoji: '\u{1F9C5}',
+    type: 'Vegetables',
+    category: 'Allium',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Parsley',
+    emoji: '\u{1F33F}',
+    type: 'Herbs',
+    category: 'Herb',
+  ),
+  _PlantEntry(
+    name: 'Peas',
+    emoji: '\u{1FAD8}',
+    type: 'Vegetables',
+    category: 'Legume',
+  ),
+  _PlantEntry(
+    name: 'Potato',
+    emoji: '\u{1F954}',
+    type: 'Vegetables',
+    category: 'Root',
+  ),
+  _PlantEntry(
+    name: 'Pumpkin',
+    emoji: '\u{1F383}',
+    type: 'Vegetables',
+    category: 'Cucurbit',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Radish',
+    emoji: '\u{1F331}',
+    type: 'Vegetables',
+    category: 'Root',
+  ),
+  _PlantEntry(
+    name: 'Raspberry',
+    emoji: '\u{1F33F}',
+    type: 'Fruit',
+    category: 'Berry',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Strawberry',
+    emoji: '\u{1F353}',
+    type: 'Fruit',
+    category: 'Berry',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Sweet Corn',
+    emoji: '\u{1F33D}',
+    type: 'Vegetables',
+    category: 'Fruiting',
+  ),
+  _PlantEntry(
+    name: 'Thyme',
+    emoji: '\u{1F33F}',
+    type: 'Herbs',
+    category: 'Herb',
+    perennial: true,
+  ),
+  _PlantEntry(
+    name: 'Tomato',
+    emoji: '\u{1F345}',
+    type: 'Vegetables',
+    category: 'Fruiting',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Watermelon',
+    emoji: '\u{1F349}',
+    type: 'Vegetables',
+    category: 'Cucurbit',
+    inSeedInventory: true,
+  ),
+  _PlantEntry(
+    name: 'Zucchini',
+    emoji: '\u{1F952}',
+    type: 'Vegetables',
+    category: 'Cucurbit',
+    inSeedInventory: true,
+  ),
+];
+
+class _CardsView extends StatefulWidget {
+  const _CardsView({required this.beds, required this.onOpenBedDetails});
+
+  final List<Bed> beds;
+  final ValueChanged<Bed> onOpenBedDetails;
+
+  @override
+  State<_CardsView> createState() => _CardsViewState();
+}
+
+class _CardsViewState extends State<_CardsView> {
+  final ScrollController scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.beds.isEmpty) {
+      return const Center(
+        child: Text(
+          'No beds match the current search or filter.',
+          style: TextStyle(
+            color: GardenTheme.muted,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 1180
+            ? 3
+            : width >= 760
+            ? 2
+            : 1;
+
+        return Scrollbar(
+          controller: scrollController,
+          thumbVisibility: true,
+          child: GridView.builder(
+            controller: scrollController,
+            padding: const EdgeInsets.all(16),
+            itemCount: widget.beds.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 14,
+              mainAxisExtent: 330,
+            ),
+            itemBuilder: (context, index) {
+              final bed = widget.beds[index];
+
+              return _BedSummaryCard(
+                bed: bed,
+                onTap: () => widget.onOpenBedDetails(bed),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BedSummaryCard extends StatelessWidget {
+  const _BedSummaryCard({required this.bed, required this.onTap});
+
+  final Bed bed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _statusColor(bed.status);
+    final statusLabel = _statusLabel(bed.status);
+    final area = bed.width * bed.height;
+    final plantedCount = bed.cropPlacements.length + bed.cropBlocks.length;
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: statusColor.withValues(alpha: 0.42)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0F000000),
+                blurRadius: 12,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _NumberBadge(number: bed.number, color: statusColor),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bed.name.trim().isEmpty
+                                ? 'Untitled Bed'
+                                : bed.name.trim(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: GardenTheme.ink,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              height: 1.12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${bed.zone.trim().isEmpty ? 'Main Garden' : bed.zone.trim().toUpperCase()} - ${bed.width.toStringAsFixed(1)}m x ${bed.height.toStringAsFixed(1)}m',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: GardenTheme.muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _StatusChip(label: statusLabel, color: statusColor),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: GardenTheme.border),
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _FactTile(
+                            label: 'Health',
+                            value: '${(bed.healthPercent * 100).round()}%',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _FactTile(
+                            label: 'Area',
+                            value: '${area.toStringAsFixed(0)} m2',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _FactTile(
+                            label: 'Planted',
+                            value: plantedCount.toString(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _CropsPanel(crops: bed.crops),
+                    const SizedBox(height: 12),
+                    _ActivityPanel(bed: bed),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(BedStatus status) {
+    switch (status) {
+      case BedStatus.ok:
+        return GardenTheme.good;
+      case BedStatus.warning:
+        return GardenTheme.warn;
+      case BedStatus.bad:
+        return GardenTheme.bad;
+      case BedStatus.hold:
+        return GardenTheme.hold;
+    }
+  }
+
+  String _statusLabel(BedStatus status) {
+    switch (status) {
+      case BedStatus.ok:
+        return 'On track';
+      case BedStatus.warning:
+        return 'Attention';
+      case BedStatus.bad:
+        return 'Issue';
+      case BedStatus.hold:
+        return 'Hold';
+    }
+  }
+}
+
+class _NumberBadge extends StatelessWidget {
+  const _NumberBadge({required this.number, required this.color});
+
+  final int number;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 38,
+      height: 38,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Text(
+        number.toString(),
+        style: const TextStyle(
+          color: GardenTheme.cream,
+          fontSize: 14,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _FactTile extends StatelessWidget {
+  const _FactTile({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: GardenTheme.paper,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: GardenTheme.muted,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.7,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CropsPanel extends StatelessWidget {
+  const _CropsPanel({required this.crops});
+
+  final List<String> crops;
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanCrops = crops
+        .map((crop) => crop.toString().trim())
+        .where((crop) => crop.isNotEmpty)
+        .toList();
+
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 74),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: GardenTheme.paper,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'CROPS IN THIS BED',
+            style: TextStyle(
+              color: GardenTheme.muted,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (cleanCrops.isEmpty)
+            const Text(
+              'No crops assigned.',
+              style: TextStyle(
+                color: GardenTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final crop in cleanCrops.take(5))
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF8F0),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: GardenTheme.good.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Text(
+                      crop,
+                      style: const TextStyle(
+                        color: GardenTheme.good,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                if (cleanCrops.length > 5)
+                  Text(
+                    '+${cleanCrops.length - 5}',
+                    style: const TextStyle(
+                      color: GardenTheme.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityPanel extends StatelessWidget {
+  const _ActivityPanel({required this.bed});
+
+  final Bed bed;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPlantings =
+        bed.cropPlacements.isNotEmpty || bed.cropBlocks.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GardenTheme.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasPlantings ? Icons.eco : Icons.event_note_outlined,
+            color: hasPlantings ? GardenTheme.good : GardenTheme.muted,
+            size: 18,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              hasPlantings
+                  ? '${bed.cropPlacements.length} icons. ${bed.cropBlocks.length} rows planted'
+                  : 'No planting activity logged yet.',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: GardenTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(Icons.chevron_right, color: GardenTheme.muted, size: 20),
+        ],
+      ),
+    );
+  }
+}
+
+
+============================================================
+FILE: lib\features\planner\ui\widgets\draggable_crop_block.dart
+============================================================
+
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../../../../core/models/crop_block.dart';
+import '../../../../core/models/crop_spacing.dart';
+import '../../../../core/theme/garden_theme.dart';
+import '../../controller/garden_controller.dart';
+
+class DraggableCropBlock extends StatefulWidget {
+  const DraggableCropBlock({
+    super.key,
+    required this.bedId,
+    required this.block,
+    required this.pixelsPerMeter,
+    required this.controller,
+  });
+
+  final String bedId;
+  final CropBlock block;
+  final double pixelsPerMeter;
+  final GardenController controller;
+
+  @override
+  State<DraggableCropBlock> createState() => _DraggableCropBlockState();
+}
+
+class _DraggableCropBlockState extends State<DraggableCropBlock> {
+  Offset dragOffsetPixels = Offset.zero;
+  bool dragging = false;
+  int? activePointer;
+
+  @override
+  void didUpdateWidget(covariant DraggableCropBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (!dragging) {
+      dragOffsetPixels = Offset.zero;
+      activePointer = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cropName = widget.block.cropName.trim().isEmpty
+        ? 'Crop'
+        : widget.block.cropName.trim();
+
+    final spacingMeters = CropSpacing.spacingMetersForCrop(cropName);
+
+    final estimatedCount = math.max(
+      1,
+      CropSpacing.estimatedPlantCount(
+        cropName: cropName,
+        widthMeters: widget.block.width,
+        heightMeters: widget.block.height,
+      ),
+    );
+
+    final left = widget.block.x * widget.pixelsPerMeter + dragOffsetPixels.dx;
+    final top = widget.block.y * widget.pixelsPerMeter + dragOffsetPixels.dy;
+
+    final width = math.max(78.0, widget.block.width * widget.pixelsPerMeter);
+    final height = math.max(70.0, widget.block.height * widget.pixelsPerMeter);
+
+    final plantStyle = _PlantIconStyle.forCrop(cropName);
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: _onPointerDown,
+        onPointerMove: _onPointerMove,
+        onPointerUp: _onPointerUp,
+        onPointerCancel: _onPointerCancel,
+        child: Tooltip(
+          message:
+              '$cropName\n$estimatedCount planted\n${CropSpacing.spacingLabelForCrop(cropName)}',
+          child: AnimatedScale(
+            scale: dragging ? 1.035 : 1.0,
+            duration: const Duration(milliseconds: 90),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: dragging ? GardenTheme.good : Colors.transparent,
+                  width: dragging ? 2 : 0,
+                ),
+              ),
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _CropIconBubbleField(
+                      cropName: cropName,
+                      emoji: plantStyle.emoji,
+                      borderColor: plantStyle.borderColor,
+                      perennial: plantStyle.perennial,
+                      spacingMeters: spacingMeters,
+                      pixelsPerMeter: widget.pixelsPerMeter,
+                      estimatedCount: estimatedCount,
+                    ),
+                    Positioned(
+                      right: 2,
+                      bottom: 2,
+                      child: _MapCountBadge(count: estimatedCount),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    activePointer = event.pointer;
+    dragging = true;
+    dragOffsetPixels = Offset.zero;
+    setState(() {});
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (activePointer != event.pointer) return;
+
+    setState(() {
+      dragOffsetPixels += event.delta;
+    });
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (activePointer != event.pointer) return;
+
+    final nextX = widget.block.x + dragOffsetPixels.dx / widget.pixelsPerMeter;
+    final nextY = widget.block.y + dragOffsetPixels.dy / widget.pixelsPerMeter;
+
+    activePointer = null;
+    dragging = false;
+    dragOffsetPixels = Offset.zero;
+    setState(() {});
+
+    widget.controller.moveCropBlock(
+      bedId: widget.bedId,
+      blockId: widget.block.id,
+      x: nextX,
+      y: nextY,
+    );
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    if (activePointer != event.pointer) return;
+
+    activePointer = null;
+    dragging = false;
+    dragOffsetPixels = Offset.zero;
+    setState(() {});
+  }
+}
+
+class _CropIconBubbleField extends StatelessWidget {
+  const _CropIconBubbleField({
+    required this.cropName,
+    required this.emoji,
+    required this.borderColor,
+    required this.perennial,
+    required this.spacingMeters,
+    required this.pixelsPerMeter,
+    required this.estimatedCount,
+  });
+
+  final String cropName;
+  final String emoji;
+  final Color borderColor;
+  final bool perennial;
+  final double spacingMeters;
+  final double pixelsPerMeter;
+  final int estimatedCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final spacingPixels = (spacingMeters * pixelsPerMeter).clamp(
+          58.0,
+          82.0,
+        );
+
+        final columns = math.max(
+          1,
+          (constraints.maxWidth / spacingPixels).floor(),
+        );
+
+        final rows = math.max(1, (constraints.maxHeight / 74.0).floor());
+
+        final maxVisible = math.min(estimatedCount, columns * rows);
+        final visibleCount = math.max(1, maxVisible);
+
+        return Stack(
+          children: [
+            for (var index = 0; index < visibleCount; index++)
+              _positionedBubble(
+                index: index,
+                columns: columns,
+                rows: rows,
+                width: constraints.maxWidth,
+                height: constraints.maxHeight,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _positionedBubble({
+    required int index,
+    required int columns,
+    required int rows,
+    required double width,
+    required double height,
+  }) {
+    final column = index % columns;
+    final row = index ~/ columns;
+
+    final cellWidth = width / columns;
+    final cellHeight = height / rows;
+
+    final stagger = row.isOdd ? cellWidth * 0.16 : 0.0;
+
+    final left = (column * cellWidth + cellWidth / 2 - 28 + stagger)
+        .clamp(0.0, math.max(0.0, width - 56.0))
+        .toDouble();
+
+    final top = (row * cellHeight + cellHeight / 2 - 34)
+        .clamp(0.0, math.max(0.0, height - 68.0))
+        .toDouble();
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: 56,
+      height: 68,
+      child: _PlantIconBubble(
+        cropName: cropName,
+        emoji: emoji,
+        borderColor: borderColor,
+        perennial: perennial,
+      ),
+    );
+  }
+}
+
+class _PlantIconBubble extends StatelessWidget {
+  const _PlantIconBubble({
+    required this.cropName,
+    required this.emoji,
+    required this.borderColor,
+    required this.perennial,
+  });
+
+  final String cropName;
+  final String emoji;
+  final Color borderColor;
+  final bool perennial;
+
+  static const List<String> emojiFontFallback = [
+    'Segoe UI Emoji',
+    'Apple Color Emoji',
+    'Noto Color Emoji',
+    'Twemoji Mozilla',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: borderColor,
+              width: perennial ? 2.2 : 1.5,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 5,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              emoji,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 23,
+                height: 1,
+                fontFamilyFallback: emojiFontFallback,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          constraints: const BoxConstraints(maxWidth: 54),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: GardenTheme.panel.withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(
+              color: GardenTheme.border.withValues(alpha: 0.85),
+            ),
+          ),
+          child: Text(
+            cropName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: GardenTheme.ink,
+              fontSize: 8.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MapCountBadge extends StatelessWidget {
+  const _MapCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: GardenTheme.panel.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: GardenTheme.border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        'x$count',
+        style: const TextStyle(
+          color: GardenTheme.muted,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _PlantIconStyle {
+  const _PlantIconStyle({
+    required this.emoji,
+    required this.borderColor,
+    required this.perennial,
+  });
+
+  final String emoji;
+  final Color borderColor;
+  final bool perennial;
+
+  static _PlantIconStyle forCrop(String cropName) {
+    final crop = cropName.trim().toLowerCase();
+
+    if (_containsAny(crop, ['agastache'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F33F}',
+        borderColor: GardenTheme.good,
+        perennial: true,
+      );
+    }
+
+    if (_containsAny(crop, ['ageratum'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F7E3}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['allium'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F33A}',
+        borderColor: GardenTheme.good,
+        perennial: true,
+      );
+    }
+
+    if (_containsAny(crop, ['almond', 'apple', 'apricot'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F333}',
+        borderColor: GardenTheme.good,
+        perennial: true,
+      );
+    }
+
+    if (_containsAny(crop, ['alyssum'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F33C}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['strawberry'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F353}',
+        borderColor: GardenTheme.good,
+        perennial: true,
+      );
+    }
+
+    if (_containsAny(crop, ['raspberry', 'blackberry'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F33F}',
+        borderColor: GardenTheme.good,
+        perennial: true,
+      );
+    }
+
+    if (_containsAny(crop, ['tomato'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F345}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['capsicum', 'pepper'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1FAD1}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['chilli'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F336}\u{FE0F}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['eggplant'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F346}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['cucumber', 'zucchini'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F952}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['pumpkin'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F383}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['watermelon'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F349}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['broccoli'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F966}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['lettuce', 'spinach', 'kale', 'cabbage'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F96C}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['carrot'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F955}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['beet', 'beetroot', 'radish'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F331}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['potato'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F954}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['onion'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F9C5}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['garlic'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F9C4}',
+        borderColor: GardenTheme.border,
+        perennial: false,
+      );
+    }
+
+    if (_containsAny(crop, ['basil', 'parsley', 'thyme', 'mint', 'herb'])) {
+      return const _PlantIconStyle(
+        emoji: '\u{1F33F}',
+        borderColor: GardenTheme.good,
+        perennial: false,
+      );
+    }
+
+    return const _PlantIconStyle(
+      emoji: '\u{1F331}',
+      borderColor: GardenTheme.border,
+      perennial: false,
+    );
+  }
+
+  static bool _containsAny(String value, List<String> needles) {
+    for (final needle in needles) {
+      if (value.contains(needle)) return true;
+    }
+
+    return false;
+  }
+}
+
+
+============================================================
+FILE: lib\features\planner\controller\garden_controller.dart
+============================================================
+
+import 'dart:convert';
+import 'dart:ui' show Offset;
+
+import 'package:flutter/foundation.dart';
+
+import '../../../core/models/bed.dart';
+import '../../../core/models/crop_block.dart';
+import '../../../core/models/crop_placement.dart';
+import '../../../core/models/crop_spacing.dart';
+import '../../../core/models/garden_project.dart';
+import '../../../core/models/seedling.dart';
+
+class GardenController extends ChangeNotifier {
+  GardenController({GardenProject? initialProject})
+    : project = initialProject ?? GardenProject.demo();
+
+  GardenProject project;
+
+  final List<GardenProject> _undoStack = [];
+  final List<GardenProject> _redoStack = [];
+
+  bool allowOverlap = true;
+
+  List<Bed> get beds => project.beds;
+
+  List<Seedling> get seedlings => project.seedlings;
+
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+
+  String? selectedBedId;
+
+  Bed? get selectedBed {
+    if (selectedBedId == null) return null;
+
+    for (final bed in beds) {
+      if (bed.id == selectedBedId) {
+        return bed;
+      }
+    }
+
+    return null;
+  }
+
+  List<String> overlappingBedIds() {
+    final ids = <String>{};
+
+    for (var i = 0; i < beds.length; i++) {
+      for (var j = i + 1; j < beds.length; j++) {
+        final a = beds[i];
+        final b = beds[j];
+
+        if (_bedsOverlap(a, b)) {
+          ids.add(a.id);
+          ids.add(b.id);
+        }
+      }
+    }
+
+    return ids.toList();
+  }
+
+  bool bedOverlaps(String bedId) {
+    return overlappingBedIds().contains(bedId);
+  }
+
+  int get overlapCount => overlappingBedIds().length;
+
+  void toggleAllowOverlap(bool value) {
+    if (allowOverlap == value) return;
+
+    allowOverlap = value;
+    notifyListeners();
+  }
+
+  String exportProjectJson() {
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert(project.toJson());
+  }
+
+  void undo() {
+    if (_undoStack.isEmpty) return;
+
+    _redoStack.add(project);
+    project = _undoStack.removeLast();
+    selectedBedId = null;
+
+    notifyListeners();
+  }
+
+  void redo() {
+    if (_redoStack.isEmpty) return;
+
+    _undoStack.add(project);
+    project = _redoStack.removeLast();
+    selectedBedId = null;
+
+    notifyListeners();
+  }
+
+  void loadProject(GardenProject nextProject, {bool recordHistory = true}) {
+    if (recordHistory) {
+      _recordHistory();
+    }
+
+    project = nextProject;
+    selectedBedId = null;
+
+    notifyListeners();
+  }
+
+  void resetToDemoProject() {
+    _recordHistory();
+
+    project = GardenProject.demo();
+    selectedBedId = null;
+
+    notifyListeners();
+  }
+
+  void loadProjectFromJson(String rawJson) {
+    final decoded = jsonDecode(rawJson);
+
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Project JSON must be an object.');
+    }
+
+    _recordHistory();
+
+    project = GardenProject.fromJson(decoded);
+    selectedBedId = null;
+
+    notifyListeners();
+  }
+
+  void updateProjectSettings({
+    required String name,
+    required double widthMeters,
+    required double heightMeters,
+    required String locationName,
+    required double latitude,
+    required double longitude,
+  }) {
+    _recordHistory();
+
+    final safeWidth = _clampDouble(widthMeters, 5.0, 100.0);
+    final safeHeight = _clampDouble(heightMeters, 5.0, 100.0);
+    final safeLatitude = _clampDouble(latitude, -90.0, 90.0);
+    final safeLongitude = _clampDouble(longitude, -180.0, 180.0);
+
+    final updatedBeds = beds.map((bed) {
+      final clampedWidth = _clampDouble(bed.width, 1.0, safeWidth);
+      final clampedHeight = _clampDouble(bed.height, 1.0, safeHeight);
+
+      final clampedX = _clampDouble(bed.x, 0.0, safeWidth - clampedWidth);
+      final clampedY = _clampDouble(bed.y, 0.0, safeHeight - clampedHeight);
+
+      return bed.copyWith(
+        x: clampedX,
+        y: clampedY,
+        width: clampedWidth,
+        height: clampedHeight,
+      );
+    }).toList();
+
+    project = project.copyWith(
+      name: name.trim().isEmpty ? project.name : name.trim(),
+      widthMeters: safeWidth,
+      heightMeters: safeHeight,
+      locationName: locationName.trim().isEmpty
+          ? GardenProject.defaultLocationName
+          : locationName.trim(),
+      latitude: safeLatitude,
+      longitude: safeLongitude,
+      beds: updatedBeds,
+      updatedAt: DateTime.now(),
+    );
+
+    if (selectedBedId != null &&
+        !updatedBeds.any((bed) => bed.id == selectedBedId)) {
+      selectedBedId = null;
+    }
+
+    notifyListeners();
+  }
+
+  void transplantSeedlingToBed({
+    required String seedlingId,
+    required String bedId,
+    bool addCropBlockToMap = false,
+  }) {
+    final seedlingIndex = seedlings.indexWhere(
+      (seedling) => seedling.id == seedlingId,
+    );
+
+    if (seedlingIndex == -1) return;
+
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final seedling = seedlings[seedlingIndex];
+    final bed = beds[bedIndex];
+
+    final cropName = seedling.cropName.trim().isEmpty
+        ? 'Seedling'
+        : seedling.cropName.trim();
+
+    final existingCropNames = bed.crops
+        .map((crop) => crop.trim().toLowerCase())
+        .where((crop) => crop.isNotEmpty)
+        .toSet();
+
+    final updatedCrops = existingCropNames.contains(cropName.toLowerCase())
+        ? bed.crops
+        : [...bed.crops, cropName];
+
+    final updatedSeedlings = [...seedlings];
+
+    updatedSeedlings[seedlingIndex] = seedling.copyWith(
+      bedId: bed.id,
+      transplantedAt: DateTime.now(),
+    );
+
+    var updatedBed = bed.copyWith(crops: updatedCrops);
+
+    if (addCropBlockToMap) {
+      final spacing = CropSpacing.spacingMetersForCrop(cropName);
+      final blockWidth = _clampDouble(spacing * 8, spacing, bed.width);
+      final blockHeight = _clampDouble(spacing * 2, spacing, bed.height);
+
+      final nextPosition = _nextCropBlockPosition(
+        bed: updatedBed,
+        cropName: cropName,
+        blockWidth: blockWidth,
+        blockHeight: blockHeight,
+        spacing: spacing,
+      );
+
+      final block = CropBlock(
+        id: 'block-${DateTime.now().microsecondsSinceEpoch}',
+        cropName: cropName,
+        x: nextPosition.dx,
+        y: nextPosition.dy,
+        width: blockWidth,
+        height: blockHeight,
+      );
+
+      updatedBed = updatedBed.copyWith(
+        cropBlocks: [...updatedBed.cropBlocks, block],
+      );
+    }
+
+    final updatedBeds = [...beds];
+    updatedBeds[bedIndex] = updatedBed;
+
+    _recordHistory();
+
+    project = project.copyWith(
+      beds: updatedBeds,
+      seedlings: updatedSeedlings,
+      updatedAt: DateTime.now(),
+    );
+
+    selectedBedId = bed.id;
+
+    notifyListeners();
+  }
+
+  void addSeedling(Seedling seedling) {
+    _recordHistory();
+
+    final safeSeedling = seedling.id.trim().isEmpty
+        ? seedling.copyWith(
+            id: 'seedling-${DateTime.now().microsecondsSinceEpoch}',
+          )
+        : seedling;
+
+    project = project.copyWith(
+      seedlings: [...seedlings, safeSeedling],
+      updatedAt: DateTime.now(),
+    );
+
+    notifyListeners();
+  }
+
+  void updateSeedling(String id, Seedling Function(Seedling seedling) update) {
+    final index = seedlings.indexWhere((seedling) => seedling.id == id);
+    if (index == -1) return;
+
+    final current = seedlings[index];
+    final updated = update(current);
+
+    _recordHistory();
+
+    final updatedSeedlings = [...seedlings];
+    updatedSeedlings[index] = updated;
+
+    project = project.copyWith(
+      seedlings: updatedSeedlings,
+      updatedAt: DateTime.now(),
+    );
+
+    notifyListeners();
+  }
+
+  void deleteSeedling(String id) {
+    final updatedSeedlings = seedlings
+        .where((seedling) => seedling.id != id)
+        .toList();
+
+    if (updatedSeedlings.length == seedlings.length) return;
+
+    _recordHistory();
+
+    project = project.copyWith(
+      seedlings: updatedSeedlings,
+      updatedAt: DateTime.now(),
+    );
+
+    notifyListeners();
+  }
+
+  void addBed(Bed bed) {
+    _recordHistory();
+
+    project = project.copyWith(beds: [...beds, bed], updatedAt: DateTime.now());
+
+    selectedBedId = bed.id;
+    notifyListeners();
+  }
+
+  void addDefaultBed() {
+    addCustomBed(
+      name: 'New Bed ${beds.length + 1}',
+      zone: 'Main Garden',
+      width: 4,
+      height: 2,
+      crops: const [],
+      status: BedStatus.ok,
+    );
+  }
+
+  void addCustomBed({
+    required String name,
+    required String zone,
+    required double width,
+    required double height,
+    required List<String> crops,
+    required BedStatus status,
+  }) {
+    final nextNumber = beds.length + 1;
+
+    final safeWidth = _clampDouble(width, 1.0, project.widthMeters);
+    final safeHeight = _clampDouble(height, 1.0, project.heightMeters);
+
+    final x = _clampDouble(
+      1.0 + nextNumber,
+      0.0,
+      project.widthMeters - safeWidth,
+    );
+
+    final y = _clampDouble(
+      1.0 + nextNumber,
+      0.0,
+      project.heightMeters - safeHeight,
+    );
+
+    addBed(
+      Bed(
+        id: 'bed-$nextNumber',
+        number: nextNumber,
+        name: name.trim().isEmpty ? 'New Bed $nextNumber' : name.trim(),
+        x: x,
+        y: y,
+        width: safeWidth,
+        height: safeHeight,
+        zone: zone.trim().isEmpty ? 'Main Garden' : zone.trim(),
+        status: status,
+        healthPercent: status == BedStatus.ok ? 1.0 : 0.7,
+        crops: crops,
+      ),
+    );
+  }
+
+  void selectBed(String id) {
+    if (selectedBedId == id) return;
+
+    selectedBedId = id;
+    notifyListeners();
+  }
+
+  void clearSelection() {
+    if (selectedBedId == null) return;
+
+    selectedBedId = null;
+    notifyListeners();
+  }
+
+  void deleteSelectedBed() {
+    if (selectedBedId == null) return;
+
+    _recordHistory();
+
+    project = project.copyWith(
+      beds: beds.where((bed) => bed.id != selectedBedId).toList(),
+      updatedAt: DateTime.now(),
+    );
+
+    selectedBedId = null;
+    notifyListeners();
+  }
+
+  void moveBed(String id, {required double dx, required double dy}) {
+    final index = beds.indexWhere((bed) => bed.id == id);
+    if (index == -1) return;
+
+    final bed = beds[index];
+
+    setBedPosition(id, x: bed.x + dx, y: bed.y + dy, snap: false);
+  }
+
+  void setBedPosition(
+    String id, {
+    required double x,
+    required double y,
+    bool snap = false,
+  }) {
+    final index = beds.indexWhere((bed) => bed.id == id);
+    if (index == -1) return;
+
+    final bed = beds[index];
+
+    var nextX = _clampDouble(x, 0.0, project.widthMeters - bed.width);
+    var nextY = _clampDouble(y, 0.0, project.heightMeters - bed.height);
+
+    if (snap) {
+      nextX = _clampDouble(
+        _snap(nextX, 0.5),
+        0.0,
+        project.widthMeters - bed.width,
+      );
+
+      nextY = _clampDouble(
+        _snap(nextY, 0.5),
+        0.0,
+        project.heightMeters - bed.height,
+      );
+    }
+
+    if (nextX == bed.x && nextY == bed.y) return;
+
+    final updatedBed = bed.copyWith(x: nextX, y: nextY);
+
+    if (!allowOverlap && _wouldOverlap(updatedBed, bed.id)) return;
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+    updatedBeds[index] = updatedBed;
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void resizeBed(
+    String id, {
+    required double width,
+    required double height,
+    bool snap = true,
+  }) {
+    final index = beds.indexWhere((bed) => bed.id == id);
+    if (index == -1) return;
+
+    final bed = beds[index];
+
+    final maxWidth = project.widthMeters - bed.x;
+    final maxHeight = project.heightMeters - bed.y;
+
+    var nextWidth = _clampDouble(width, 1.0, maxWidth);
+    var nextHeight = _clampDouble(height, 1.0, maxHeight);
+
+    if (snap) {
+      nextWidth = _clampDouble(_snap(nextWidth, 0.5), 1.0, maxWidth);
+      nextHeight = _clampDouble(_snap(nextHeight, 0.5), 1.0, maxHeight);
+    }
+
+    if (nextWidth == bed.width && nextHeight == bed.height) return;
+
+    final updatedBed = bed.copyWith(width: nextWidth, height: nextHeight);
+
+    if (!allowOverlap && _wouldOverlap(updatedBed, bed.id)) return;
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+    updatedBeds[index] = updatedBed;
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void snapBedToGrid(String id, {double step = 0.5}) {
+    final index = beds.indexWhere((bed) => bed.id == id);
+    if (index == -1) return;
+
+    final bed = beds[index];
+
+    final snappedX = _clampDouble(
+      _snap(bed.x, step),
+      0.0,
+      project.widthMeters - bed.width,
+    );
+
+    final snappedY = _clampDouble(
+      _snap(bed.y, step),
+      0.0,
+      project.heightMeters - bed.height,
+    );
+
+    if (snappedX == bed.x && snappedY == bed.y) return;
+
+    final updatedBed = bed.copyWith(x: snappedX, y: snappedY);
+
+    if (!allowOverlap && _wouldOverlap(updatedBed, bed.id)) return;
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+    updatedBeds[index] = updatedBed;
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void updateSelectedBedName(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+
+    _updateSelectedBed((bed) => bed.copyWith(name: trimmed));
+  }
+
+  void updateSelectedBedZone(String value) {
+    final trimmed = value.trim();
+
+    _updateSelectedBed(
+      (bed) => bed.copyWith(zone: trimmed.isEmpty ? 'Main Garden' : trimmed),
+    );
+  }
+
+  void updateSelectedBedWidth(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed == null) return;
+
+    _updateSelectedBed((bed) {
+      final maxWidth = project.widthMeters - bed.x;
+      final nextWidth = _clampDouble(parsed, 1.0, maxWidth);
+
+      return bed.copyWith(width: nextWidth);
+    });
+  }
+
+  void updateSelectedBedHeight(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed == null) return;
+
+    _updateSelectedBed((bed) {
+      final maxHeight = project.heightMeters - bed.y;
+      final nextHeight = _clampDouble(parsed, 1.0, maxHeight);
+
+      return bed.copyWith(height: nextHeight);
+    });
+  }
+
+  void updateSelectedBedCropsFromText(String value) {
+    final crops = value
+        .split(',')
+        .map((crop) => crop.trim())
+        .where((crop) => crop.isNotEmpty)
+        .toList();
+
+    _updateSelectedBed((bed) => bed.copyWith(crops: crops));
+  }
+
+  void removeCropFromSelectedBed(String cropToRemove) {
+    final target = cropToRemove.trim();
+    if (target.isEmpty) return;
+
+    _updateSelectedBed((bed) {
+      final updatedCrops = bed.crops
+          .where((crop) => crop.trim().toLowerCase() != target.toLowerCase())
+          .toList();
+
+      final updatedPlacements = bed.cropPlacements
+          .where(
+            (placement) =>
+                placement.cropName.trim().toLowerCase() != target.toLowerCase(),
+          )
+          .toList();
+
+      final updatedBlocks = bed.cropBlocks
+          .where(
+            (block) =>
+                block.cropName.trim().toLowerCase() != target.toLowerCase(),
+          )
+          .toList();
+
+      return bed.copyWith(
+        crops: updatedCrops,
+        cropPlacements: updatedPlacements,
+        cropBlocks: updatedBlocks,
+      );
+    });
+  }
+
+  void addCropPlacementToSelectedBed(String cropName) {
+    if (selectedBedId == null) return;
+
+    final targetCrop = cropName.trim();
+    if (targetCrop.isEmpty) return;
+
+    final index = beds.indexWhere((bed) => bed.id == selectedBedId);
+    if (index == -1) return;
+
+    final bed = beds[index];
+    final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+
+    final nextPosition = _nextCropPlacementPosition(
+      bed: bed,
+      cropName: targetCrop,
+      spacing: spacing,
+    );
+
+    final existingCropsLower = bed.crops
+        .map((crop) => crop.trim().toLowerCase())
+        .where((crop) => crop.isNotEmpty)
+        .toSet();
+
+    final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+        ? bed.crops
+        : [...bed.crops, targetCrop];
+
+    final placement = CropPlacement(
+      id: 'crop-${DateTime.now().microsecondsSinceEpoch}',
+      cropName: targetCrop,
+      x: nextPosition.dx,
+      y: nextPosition.dy,
+    );
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[index] = bed.copyWith(
+      crops: updatedCrops,
+      cropPlacements: [...bed.cropPlacements, placement],
+    );
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void moveCropPlacement({
+    required String bedId,
+    required String placementId,
+    required double x,
+    required double y,
+  }) {
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+
+    final placementIndex = bed.cropPlacements.indexWhere(
+      (placement) => placement.id == placementId,
+    );
+
+    if (placementIndex == -1) return;
+
+    final placement = bed.cropPlacements[placementIndex];
+    final spacing = CropSpacing.spacingMetersForCrop(placement.cropName);
+
+    final snappedX = _snapCropCoordinate(
+      value: x,
+      spacing: spacing,
+      max: bed.width,
+    );
+
+    final snappedY = _snapCropCoordinate(
+      value: y,
+      spacing: spacing,
+      max: bed.height,
+    );
+
+    if (snappedX == placement.x && snappedY == placement.y) return;
+
+    _recordHistory();
+
+    final updatedPlacements = [...bed.cropPlacements];
+
+    updatedPlacements[placementIndex] = placement.copyWith(
+      x: snappedX,
+      y: snappedY,
+    );
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(cropPlacements: updatedPlacements);
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void removeCropPlacement({
+    required String bedId,
+    required String placementId,
+  }) {
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+
+    final updatedPlacements = bed.cropPlacements
+        .where((placement) => placement.id != placementId)
+        .toList();
+
+    if (updatedPlacements.length == bed.cropPlacements.length) return;
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(cropPlacements: updatedPlacements);
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void addCropBlockToSelectedBed(String cropName) {
+    if (selectedBedId == null) return;
+
+    final targetCrop = cropName.trim();
+    if (targetCrop.isEmpty) return;
+
+    final bedIndex = beds.indexWhere((bed) => bed.id == selectedBedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+    final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+
+    final existingCropsLower = bed.crops
+        .map((crop) => crop.trim().toLowerCase())
+        .where((crop) => crop.isNotEmpty)
+        .toSet();
+
+    final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+        ? bed.crops
+        : [...bed.crops, targetCrop];
+
+    final blockWidth = _clampDouble(spacing * 8, spacing, bed.width);
+    final blockHeight = _clampDouble(spacing * 2, spacing, bed.height);
+
+    final nextPosition = _nextCropBlockPosition(
+      bed: bed,
+      cropName: targetCrop,
+      blockWidth: blockWidth,
+      blockHeight: blockHeight,
+      spacing: spacing,
+    );
+
+    final block = CropBlock(
+      id: 'block-${DateTime.now().microsecondsSinceEpoch}',
+      cropName: targetCrop,
+      x: nextPosition.dx,
+      y: nextPosition.dy,
+      width: blockWidth,
+      height: blockHeight,
+    );
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(
+      crops: updatedCrops,
+      cropBlocks: [...bed.cropBlocks, block],
+    );
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void addCropBlockToBedAt({
+    required String bedId,
+    required String cropName,
+    required double x,
+    required double y,
+  }) {
+    final targetCrop = cropName.trim();
+    if (targetCrop.isEmpty) return;
+
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+    final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+
+    final existingCropsLower = bed.crops
+        .map((crop) => crop.trim().toLowerCase())
+        .where((crop) => crop.isNotEmpty)
+        .toSet();
+
+    final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+        ? bed.crops
+        : [...bed.crops, targetCrop];
+
+    final blockWidth = _clampDouble(
+      spacing * 12,
+      _clampDouble(2.8, spacing, bed.width),
+      bed.width,
+    );
+
+    final blockHeight = _clampDouble(
+      spacing * 4,
+      _clampDouble(1.25, spacing, bed.height),
+      bed.height,
+    );
+
+    final localX = _clampDouble(
+      x - bed.x - blockWidth / 2,
+      0,
+      bed.width - blockWidth,
+    );
+
+    final localY = _clampDouble(
+      y - bed.y - blockHeight / 2,
+      0,
+      bed.height - blockHeight,
+    );
+
+    final block = CropBlock(
+      id: 'block-${DateTime.now().microsecondsSinceEpoch}',
+      cropName: targetCrop,
+      x: localX,
+      y: localY,
+      width: blockWidth,
+      height: blockHeight,
+    );
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(
+      crops: updatedCrops,
+      cropBlocks: [...bed.cropBlocks, block],
+    );
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    selectedBedId = bed.id;
+
+    notifyListeners();
+  }
+
+  void addCropRowToBedRect({
+    required String bedId,
+    required String cropName,
+    required double startX,
+    required double startY,
+    required double endX,
+    required double endY,
+  }) {
+    final targetCrop = cropName.trim();
+    if (targetCrop.isEmpty) return;
+
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+    final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+
+    final existingCropsLower = bed.crops
+        .map((crop) => crop.trim().toLowerCase())
+        .where((crop) => crop.isNotEmpty)
+        .toSet();
+
+    final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+        ? bed.crops
+        : [...bed.crops, targetCrop];
+
+    final dx = (endX - startX).abs();
+    final dy = (endY - startY).abs();
+    final horizontal = dx >= dy;
+
+    final rowThickness = _clampDouble(
+      spacing * 2.2,
+      _clampDouble(0.65, spacing, horizontal ? bed.height : bed.width),
+      horizontal ? bed.height : bed.width,
+    );
+
+    final minRowLength = _clampDouble(
+      spacing * 6,
+      spacing,
+      horizontal ? bed.width : bed.height,
+    );
+
+    final rawLength = horizontal ? dx : dy;
+    final rowLength = _clampDouble(
+      rawLength < minRowLength ? minRowLength : rawLength,
+      spacing,
+      horizontal ? bed.width : bed.height,
+    );
+
+    final centerX = ((startX + endX) / 2) - bed.x;
+    final centerY = ((startY + endY) / 2) - bed.y;
+
+    late final double blockX;
+    late final double blockY;
+    late final double blockWidth;
+    late final double blockHeight;
+
+    if (horizontal) {
+      blockWidth = rowLength;
+      blockHeight = rowThickness;
+
+      blockX = _clampDouble(
+        centerX - blockWidth / 2,
+        0,
+        bed.width - blockWidth,
+      );
+
+      blockY = _clampDouble(
+        centerY - blockHeight / 2,
+        0,
+        bed.height - blockHeight,
+      );
+    } else {
+      blockWidth = rowThickness;
+      blockHeight = rowLength;
+
+      blockX = _clampDouble(
+        centerX - blockWidth / 2,
+        0,
+        bed.width - blockWidth,
+      );
+
+      blockY = _clampDouble(
+        centerY - blockHeight / 2,
+        0,
+        bed.height - blockHeight,
+      );
+    }
+
+    final block = CropBlock(
+      id: 'block-${DateTime.now().microsecondsSinceEpoch}',
+      cropName: targetCrop,
+      x: blockX,
+      y: blockY,
+      width: blockWidth,
+      height: blockHeight,
+    );
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(
+      crops: updatedCrops,
+      cropBlocks: [...bed.cropBlocks, block],
+    );
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    selectedBedId = bed.id;
+
+    notifyListeners();
+  }
+
+  void moveCropBlock({
+    required String bedId,
+    required String blockId,
+    required double x,
+    required double y,
+  }) {
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+
+    final blockIndex = bed.cropBlocks.indexWhere(
+      (block) => block.id == blockId,
+    );
+
+    if (blockIndex == -1) return;
+
+    final block = bed.cropBlocks[blockIndex];
+    final spacing = CropSpacing.spacingMetersForCrop(block.cropName);
+
+    final snappedX = _snapCropBlockCoordinate(
+      value: x,
+      spacing: spacing,
+      min: 0,
+      max: bed.width - block.width,
+    );
+
+    final snappedY = _snapCropBlockCoordinate(
+      value: y,
+      spacing: spacing,
+      min: 0,
+      max: bed.height - block.height,
+    );
+
+    if (snappedX == block.x && snappedY == block.y) return;
+
+    _recordHistory();
+
+    final updatedBlocks = [...bed.cropBlocks];
+
+    updatedBlocks[blockIndex] = block.copyWith(x: snappedX, y: snappedY);
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(cropBlocks: updatedBlocks);
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void resizeCropBlock({
+    required String bedId,
+    required String blockId,
+    required double width,
+    required double height,
+  }) {
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+
+    final blockIndex = bed.cropBlocks.indexWhere(
+      (block) => block.id == blockId,
+    );
+
+    if (blockIndex == -1) return;
+
+    final block = bed.cropBlocks[blockIndex];
+    final spacing = CropSpacing.spacingMetersForCrop(block.cropName);
+
+    final maxWidth = bed.width - block.x;
+    final maxHeight = bed.height - block.y;
+
+    final snappedWidth = _snapCropBlockSize(
+      value: width,
+      spacing: spacing,
+      min: spacing,
+      max: maxWidth,
+    );
+
+    final snappedHeight = _snapCropBlockSize(
+      value: height,
+      spacing: spacing,
+      min: spacing,
+      max: maxHeight,
+    );
+
+    if (snappedWidth == block.width && snappedHeight == block.height) return;
+
+    _recordHistory();
+
+    final updatedBlocks = [...bed.cropBlocks];
+
+    updatedBlocks[blockIndex] = block.copyWith(
+      width: snappedWidth,
+      height: snappedHeight,
+    );
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(cropBlocks: updatedBlocks);
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void removeCropBlock({required String bedId, required String blockId}) {
+    final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+    if (bedIndex == -1) return;
+
+    final bed = beds[bedIndex];
+
+    final updatedBlocks = bed.cropBlocks
+        .where((block) => block.id != blockId)
+        .toList();
+
+    if (updatedBlocks.length == bed.cropBlocks.length) return;
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+
+    updatedBeds[bedIndex] = bed.copyWith(cropBlocks: updatedBlocks);
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  void updateSelectedBedStatus(BedStatus status) {
+    _updateSelectedBed((bed) => bed.copyWith(status: status));
+  }
+
+  void updateSelectedBedHealth(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed == null) return;
+
+    final normalized = _clampDouble(parsed / 100, 0.0, 1.0);
+
+    _updateSelectedBed((bed) => bed.copyWith(healthPercent: normalized));
+  }
+
+  void _updateSelectedBed(Bed Function(Bed bed) update) {
+    if (selectedBedId == null) return;
+
+    final index = beds.indexWhere((bed) => bed.id == selectedBedId);
+    if (index == -1) return;
+
+    final currentBed = beds[index];
+    final updatedBed = update(currentBed);
+
+    if (updatedBed == currentBed) return;
+
+    if (!allowOverlap && _wouldOverlap(updatedBed, currentBed.id)) return;
+
+    _recordHistory();
+
+    final updatedBeds = [...beds];
+    updatedBeds[index] = updatedBed;
+
+    project = project.copyWith(beds: updatedBeds, updatedAt: DateTime.now());
+
+    notifyListeners();
+  }
+
+  Offset _nextCropPlacementPosition({
+    required Bed bed,
+    required String cropName,
+    required double spacing,
+  }) {
+    final existingForCrop = bed.cropPlacements
+        .where(
+          (placement) =>
+              placement.cropName.trim().toLowerCase() ==
+              cropName.trim().toLowerCase(),
+        )
+        .length;
+
+    final columnCount = (bed.width / spacing).floor();
+    final safeColumnCount = columnCount < 1 ? 1 : columnCount;
+
+    final column = existingForCrop % safeColumnCount;
+    final row = existingForCrop ~/ safeColumnCount;
+
+    final rawX = spacing / 2 + column * spacing;
+    final rawY = spacing / 2 + row * spacing;
+
+    return Offset(
+      _clampDouble(rawX, spacing / 2, bed.width - spacing / 2),
+      _clampDouble(rawY, spacing / 2, bed.height - spacing / 2),
+    );
+  }
+
+  Offset _nextCropBlockPosition({
+    required Bed bed,
+    required String cropName,
+    required double blockWidth,
+    required double blockHeight,
+    required double spacing,
+  }) {
+    final existingForCrop = bed.cropBlocks
+        .where(
+          (block) =>
+              block.cropName.trim().toLowerCase() ==
+              cropName.trim().toLowerCase(),
+        )
+        .length;
+
+    final availableWidth = bed.width - blockWidth;
+    final availableHeight = bed.height - blockHeight;
+
+    final columnCount = availableWidth <= 0
+        ? 1
+        : ((availableWidth / spacing).floor() + 1).clamp(1, 9999);
+
+    final column = existingForCrop % columnCount;
+    final row = existingForCrop ~/ columnCount;
+
+    final rawX = column * spacing;
+    final rawY = row * spacing;
+
+    return Offset(
+      _clampDouble(rawX, 0, availableWidth),
+      _clampDouble(rawY, 0, availableHeight),
+    );
+  }
+
+  double _snapCropCoordinate({
+    required double value,
+    required double spacing,
+    required double max,
+  }) {
+    if (max <= 0) return 0;
+    if (spacing <= 0) return _clampDouble(value, 0, max);
+
+    final halfSpacing = spacing / 2;
+
+    if (max <= halfSpacing) {
+      return max / 2;
+    }
+
+    final snapped =
+        ((value - halfSpacing) / spacing).round() * spacing + halfSpacing;
+
+    return _clampDouble(snapped, halfSpacing, max - halfSpacing);
+  }
+
+  double _snapCropBlockCoordinate({
+    required double value,
+    required double spacing,
+    required double min,
+    required double max,
+  }) {
+    if (max < min) return min;
+    if (spacing <= 0) return _clampDouble(value, min, max);
+
+    final snapped = (value / spacing).round() * spacing;
+
+    return _clampDouble(snapped, min, max);
+  }
+
+  double _snapCropBlockSize({
+    required double value,
+    required double spacing,
+    required double min,
+    required double max,
+  }) {
+    if (max < min) return min;
+    if (spacing <= 0) return _clampDouble(value, min, max);
+
+    final snapped = (value / spacing).round() * spacing;
+
+    return _clampDouble(snapped, min, max);
+  }
+
+  bool _wouldOverlap(Bed candidate, String candidateId) {
+    for (final other in beds) {
+      if (other.id == candidateId) continue;
+
+      if (_bedsOverlap(candidate, other)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _bedsOverlap(Bed a, Bed b) {
+    final leftA = a.x;
+    final rightA = a.x + a.width;
+    final topA = a.y;
+    final bottomA = a.y + a.height;
+
+    final leftB = b.x;
+    final rightB = b.x + b.width;
+    final topB = b.y;
+    final bottomB = b.y + b.height;
+
+    return leftA < rightB && rightA > leftB && topA < bottomB && bottomA > topB;
+  }
+
+  void _recordHistory() {
+    _undoStack.add(project);
+    _redoStack.clear();
+
+    const maxHistory = 50;
+
+    if (_undoStack.length > maxHistory) {
+      _undoStack.removeAt(0);
+    }
+  }
+
+  double _snap(double value, double step) {
+    return (value / step).round() * step;
+  }
+
+  double _clampDouble(double value, double min, double max) {
+    if (max < min) return min;
+    return value.clamp(min, max).toDouble();
+  }
+}
+
+
+============================================================
+FILE: lib\core\models\crop_block.dart
+============================================================
+
+class CropBlock {
+  const CropBlock({
+    required this.id,
+    required this.cropName,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
+
+  final String id;
+  final String cropName;
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+
+  CropBlock copyWith({
+    String? id,
+    String? cropName,
+    double? x,
+    double? y,
+    double? width,
+    double? height,
+  }) {
+    return CropBlock(
+      id: id ?? this.id,
+      cropName: cropName ?? this.cropName,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      width: width ?? this.width,
+      height: height ?? this.height,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'cropName': cropName,
+      'x': x,
+      'y': y,
+      'width': width,
+      'height': height,
+    };
+  }
+
+  factory CropBlock.fromJson(Map<String, dynamic> json) {
+    return CropBlock(
+      id: json['id']?.toString() ?? '',
+      cropName: json['cropName']?.toString() ?? '',
+      x: _readDouble(json['x']),
+      y: _readDouble(json['y']),
+      width: _readDouble(json['width'], fallback: 1),
+      height: _readDouble(json['height'], fallback: 0.5),
+    );
+  }
+
+  static double _readDouble(Object? value, {double fallback = 0}) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? fallback;
+    return fallback;
+  }
+}
+
+
+============================================================
+FILE: lib\core\models\crop_spacing.dart
+============================================================
+
+class CropSpacing {
+  const CropSpacing._();
+
+  static double spacingMetersForCrop(String cropName) {
+    final crop = cropName.trim().toLowerCase();
+
+    if (crop.contains('strawberry')) return 0.30;
+    if (crop.contains('raspberry')) return 0.45;
+    if (crop.contains('blueberry')) return 0.75;
+
+    if (crop.contains('lettuce')) return 0.25;
+    if (crop.contains('spinach')) return 0.20;
+    if (crop.contains('kale')) return 0.45;
+    if (crop.contains('broccoli')) return 0.45;
+    if (crop.contains('cabbage')) return 0.45;
+
+    if (crop.contains('tomato')) return 0.60;
+    if (crop.contains('pepper')) return 0.45;
+    if (crop.contains('cucumber')) return 0.45;
+    if (crop.contains('zucchini')) return 0.90;
+    if (crop.contains('squash')) return 0.90;
+
+    if (crop.contains('carrot')) return 0.08;
+    if (crop.contains('radish')) return 0.08;
+    if (crop.contains('beet')) return 0.10;
+    if (crop.contains('onion')) return 0.10;
+    if (crop.contains('garlic')) return 0.15;
+
+    if (crop.contains('basil')) return 0.25;
+    if (crop.contains('parsley')) return 0.20;
+    if (crop.contains('cilantro')) return 0.15;
+    if (crop.contains('thyme')) return 0.25;
+    if (crop.contains('mint')) return 0.30;
+
+    return 0.30;
+  }
+
+  static String spacingLabelForCrop(String cropName) {
+    final spacing = spacingMetersForCrop(cropName);
+    final centimeters = (spacing * 100).round();
+
+    return '${centimeters}cm spacing';
+  }
+
+  static int estimatedPlantCount({
+    required String cropName,
+    required double widthMeters,
+    required double heightMeters,
+  }) {
+    final spacing = spacingMetersForCrop(cropName);
+
+    if (widthMeters <= 0 || heightMeters <= 0 || spacing <= 0) {
+      return 0;
+    }
+
+    final columns = (widthMeters / spacing).floor();
+    final rows = (heightMeters / spacing).floor();
+
+    return columns * rows;
+  }
+}
+
+
+============================================================
+FILE: pubspec.yaml
+============================================================
+
+name: garden_planner
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.5.5
+  http: ^1.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # To add assets to your application, add an assets section, like this:
+  # assets:
+  #   - images/a_dot_burr.jpeg
+  #   - images/a_dot_ham.jpeg
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package
+

@@ -1,0 +1,16 @@
+===== DASHBOARD FEATURE FILE CHECK =====
+
+dashboard_screen.dart exists: NO
+
+===== ACTIVE DASHBOARD REFERENCES =====
+C:\Users\Danie\garden_planner\lib\app\app_routes.dart:3: import '../screens/dashboard_screen.dart';
+C:\Users\Danie\garden_planner\lib\app\app_routes.dart:12: static const dashboard = '/';
+C:\Users\Danie\garden_planner\lib\app\app_routes.dart:20: dashboard: (_) =>
+C:\Users\Danie\garden_planner\lib\app\app_routes.dart:21: const AppShell(currentRoute: dashboard, child: DashboardScreen()),
+C:\Users\Danie\garden_planner\lib\screens\dashboard_screen.dart:5: class DashboardScreen extends StatelessWidget {
+C:\Users\Danie\garden_planner\lib\screens\dashboard_screen.dart:6: const DashboardScreen({super.key});
+C:\Users\Danie\garden_planner\lib\screens\dashboard_screen.dart:19: 'Dashboard',
+C:\Users\Danie\garden_planner\lib\widgets\app_shell.dart:24: title: const Text("Dashboard"),
+C:\Users\Danie\garden_planner\lib\widgets\app_shell.dart:25: onTap: () => _go(context, AppRoutes.dashboard),
+
+===== MAIN FILE =====

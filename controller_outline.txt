@@ -1,0 +1,411 @@
+﻿FILE: lib\features\planner\controller\garden_controller.dart
+
+Line 1: import 'dart:convert';
+Line 2: import 'dart:ui' show Offset;
+Line 4: import 'package:flutter/foundation.dart';
+Line 6: import '../../../core/models/bed.dart';
+Line 7: import '../../../core/models/crop_block.dart';
+Line 8: import '../../../core/models/crop_placement.dart';
+Line 9: import '../../../core/models/crop_spacing.dart';
+Line 10: import '../../../core/models/garden_project.dart';
+Line 11: import '../../../core/models/seedling.dart';
+Line 13: class GardenController extends ChangeNotifier {
+Line 14: int _cropBlockIdNonce = 0;
+Line 16: String _nextCropBlockId() {
+Line 21: GardenController({GardenProject? initialProject})
+Line 26: final List<GardenProject> _undoStack = [];
+Line 27: final List<GardenProject> _redoStack = [];
+Line 29: bool allowOverlap = true;
+Line 31: List<Bed> get beds => project.beds;
+Line 33: List<Seedling> get seedlings => project.seedlings;
+Line 35: bool get canUndo => _undoStack.isNotEmpty;
+Line 36: bool get canRedo => _redoStack.isNotEmpty;
+Line 52: List<String> overlappingBedIds() {
+Line 53: final ids = <String>{};
+Line 57: final a = beds[i];
+Line 58: final b = beds[j];
+Line 70: bool bedOverlaps(String bedId) {
+Line 71: return overlappingBedIds().contains(bedId);
+Line 74: int get overlapCount => overlappingBedIds().length;
+Line 76: void toggleAllowOverlap(bool value) {
+Line 80: notifyListeners();
+Line 83: String exportProjectJson() {
+Line 88: void undo() {
+Line 95: notifyListeners();
+Line 98: void redo() {
+Line 105: notifyListeners();
+Line 108: void loadProject(GardenProject nextProject, {bool recordHistory = true}) {
+Line 110: _recordHistory();
+Line 116: notifyListeners();
+Line 119: void resetToDemoProject() {
+Line 120: _recordHistory();
+Line 125: notifyListeners();
+Line 128: void loadProjectFromJson(String rawJson) {
+Line 129: final decoded = jsonDecode(rawJson);
+Line 132: throw const FormatException('Project JSON must be an object.');
+Line 135: _recordHistory();
+Line 140: notifyListeners();
+Line 143: void updateProjectSettings({
+Line 151: _recordHistory();
+Line 153: final safeWidth = _clampDouble(widthMeters, 5.0, 100.0);
+Line 154: final safeHeight = _clampDouble(heightMeters, 5.0, 100.0);
+Line 155: final safeLatitude = _clampDouble(latitude, -90.0, 90.0);
+Line 156: final safeLongitude = _clampDouble(longitude, -180.0, 180.0);
+Line 158: final updatedBeds = beds.map((bed) {
+Line 159: final clampedWidth = _clampDouble(bed.width, 1.0, safeWidth);
+Line 160: final clampedHeight = _clampDouble(bed.height, 1.0, safeHeight);
+Line 162: final clampedX = _clampDouble(bed.x, 0.0, safeWidth - clampedWidth);
+Line 163: final clampedY = _clampDouble(bed.y, 0.0, safeHeight - clampedHeight);
+Line 191: notifyListeners();
+Line 194: void transplantSeedlingToBed({
+Line 197: bool addCropBlockToMap = false,
+Line 199: final seedlingIndex = seedlings.indexWhere(
+Line 205: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 208: final seedling = seedlings[seedlingIndex];
+Line 209: final bed = beds[bedIndex];
+Line 211: final cropName = seedling.cropName.trim().isEmpty
+Line 215: final existingCropNames = bed.crops
+Line 220: final updatedCrops = existingCropNames.contains(cropName.toLowerCase())
+Line 224: final updatedSeedlings = [...seedlings];
+Line 231: var updatedBed = bed.copyWith(crops: updatedCrops);
+Line 234: final spacing = CropSpacing.spacingMetersForCrop(cropName);
+Line 235: final blockWidth = _clampDouble(spacing * 8, spacing, bed.width);
+Line 236: final blockHeight = _clampDouble(spacing * 2, spacing, bed.height);
+Line 238: final nextPosition = _nextCropBlockPosition(
+Line 246: final block = CropBlock(
+Line 260: final updatedBeds = [...beds];
+Line 263: _recordHistory();
+Line 273: notifyListeners();
+Line 276: void addSeedling(Seedling seedling) {
+Line 277: _recordHistory();
+Line 279: final safeSeedling = seedling.id.trim().isEmpty
+Line 290: notifyListeners();
+Line 293: void updateSeedling(String id, Seedling Function(Seedling seedling) update) {
+Line 294: final index = seedlings.indexWhere((seedling) => seedling.id == id);
+Line 297: final current = seedlings[index];
+Line 298: final updated = update(current);
+Line 300: _recordHistory();
+Line 302: final updatedSeedlings = [...seedlings];
+Line 310: notifyListeners();
+Line 313: void deleteSeedling(String id) {
+Line 314: final updatedSeedlings = seedlings
+Line 320: _recordHistory();
+Line 327: notifyListeners();
+Line 330: void addBed(Bed bed) {
+Line 331: _recordHistory();
+Line 336: notifyListeners();
+Line 339: void addDefaultBed() {
+Line 340: addCustomBed(
+Line 350: void addBedIssueToBed({required String bedId, required BedIssue issue}) {
+Line 351: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 354: final bed = beds[bedIndex];
+Line 355: final safeIssue = issue.id.trim().isEmpty
+Line 359: _recordHistory();
+Line 361: final updatedBeds = [...beds];
+Line 366: notifyListeners();
+Line 369: void updateBedIssueInBed({
+Line 372: required BedIssue Function(BedIssue issue) update,
+Line 374: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 377: final bed = beds[bedIndex];
+Line 378: final issueIndex = bed.issues.indexWhere((issue) => issue.id == issueId);
+Line 381: final currentIssue = bed.issues[issueIndex];
+Line 382: final updatedIssue = update(currentIssue);
+Line 386: _recordHistory();
+Line 388: final updatedIssues = [...bed.issues];
+Line 391: final updatedBeds = [...beds];
+Line 396: notifyListeners();
+Line 399: void resolveBedIssue({
+Line 404: updateBedIssueInBed(
+Line 408: final trimmedNotes = notes?.trim();
+Line 420: void addCustomBed({
+Line 428: final nextNumber = beds.length + 1;
+Line 430: final safeWidth = _clampDouble(width, 1.0, project.widthMeters);
+Line 431: final safeHeight = _clampDouble(height, 1.0, project.heightMeters);
+Line 433: final x = _clampDouble(
+Line 439: final y = _clampDouble(
+Line 445: addBed(
+Line 446: Bed(
+Line 462: void selectBed(String id) {
+Line 466: notifyListeners();
+Line 469: void clearSelection() {
+Line 473: notifyListeners();
+Line 476: void deleteSelectedBed() {
+Line 479: _recordHistory();
+Line 487: notifyListeners();
+Line 490: void moveBed(String id, {required double dx, required double dy}) {
+Line 491: final index = beds.indexWhere((bed) => bed.id == id);
+Line 494: final bed = beds[index];
+Line 496: setBedPosition(id, x: bed.x + dx, y: bed.y + dy, snap: false);
+Line 499: void setBedPosition(
+Line 500: String id, {
+Line 503: bool snap = false,
+Line 505: final index = beds.indexWhere((bed) => bed.id == id);
+Line 508: final bed = beds[index];
+Line 510: var nextX = _clampDouble(x, 0.0, project.widthMeters - bed.width);
+Line 511: var nextY = _clampDouble(y, 0.0, project.heightMeters - bed.height);
+Line 515: _snap(nextX, 0.5),
+Line 521: _snap(nextY, 0.5),
+Line 529: final updatedBed = bed.copyWith(x: nextX, y: nextY);
+Line 533: _recordHistory();
+Line 535: final updatedBeds = [...beds];
+Line 540: notifyListeners();
+Line 543: void resizeBed(
+Line 544: String id, {
+Line 547: bool snap = true,
+Line 549: final index = beds.indexWhere((bed) => bed.id == id);
+Line 552: final bed = beds[index];
+Line 554: final maxWidth = project.widthMeters - bed.x;
+Line 555: final maxHeight = project.heightMeters - bed.y;
+Line 557: var nextWidth = _clampDouble(width, 1.0, maxWidth);
+Line 558: var nextHeight = _clampDouble(height, 1.0, maxHeight);
+Line 567: final updatedBed = bed.copyWith(width: nextWidth, height: nextHeight);
+Line 571: _recordHistory();
+Line 573: final updatedBeds = [...beds];
+Line 578: notifyListeners();
+Line 581: void snapBedToGrid(String id, {double step = 0.5}) {
+Line 582: final index = beds.indexWhere((bed) => bed.id == id);
+Line 585: final bed = beds[index];
+Line 587: final snappedX = _clampDouble(
+Line 588: _snap(bed.x, step),
+Line 593: final snappedY = _clampDouble(
+Line 594: _snap(bed.y, step),
+Line 601: final updatedBed = bed.copyWith(x: snappedX, y: snappedY);
+Line 605: _recordHistory();
+Line 607: final updatedBeds = [...beds];
+Line 612: notifyListeners();
+Line 615: void updateSelectedBedName(String value) {
+Line 616: final trimmed = value.trim();
+Line 619: _updateSelectedBed((bed) => bed.copyWith(name: trimmed));
+Line 622: void updateSelectedBedZone(String value) {
+Line 623: final trimmed = value.trim();
+Line 625: _updateSelectedBed(
+Line 630: void updateSelectedBedWidth(String value) {
+Line 631: final parsed = double.tryParse(value);
+Line 634: _updateSelectedBed((bed) {
+Line 635: final maxWidth = project.widthMeters - bed.x;
+Line 636: final nextWidth = _clampDouble(parsed, 1.0, maxWidth);
+Line 642: void updateSelectedBedHeight(String value) {
+Line 643: final parsed = double.tryParse(value);
+Line 646: _updateSelectedBed((bed) {
+Line 647: final maxHeight = project.heightMeters - bed.y;
+Line 648: final nextHeight = _clampDouble(parsed, 1.0, maxHeight);
+Line 654: void updateSelectedBedCropsFromText(String value) {
+Line 655: final crops = value
+Line 661: _updateSelectedBed((bed) => bed.copyWith(crops: crops));
+Line 664: void removeCropFromSelectedBed(String cropToRemove) {
+Line 665: final target = cropToRemove.trim();
+Line 668: _updateSelectedBed((bed) {
+Line 669: final updatedCrops = bed.crops
+Line 673: final updatedPlacements = bed.cropPlacements
+Line 680: final updatedBlocks = bed.cropBlocks
+Line 695: void addCropPlacementToSelectedBed(String cropName) {
+Line 698: final targetCrop = cropName.trim();
+Line 701: final index = beds.indexWhere((bed) => bed.id == selectedBedId);
+Line 704: final bed = beds[index];
+Line 705: final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+Line 707: final nextPosition = _nextCropPlacementPosition(
+Line 713: final existingCropsLower = bed.crops
+Line 718: final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+Line 722: final placement = CropPlacement(
+Line 729: _recordHistory();
+Line 731: final updatedBeds = [...beds];
+Line 740: notifyListeners();
+Line 743: void moveCropPlacement({
+Line 749: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 752: final bed = beds[bedIndex];
+Line 754: final placementIndex = bed.cropPlacements.indexWhere(
+Line 760: final placement = bed.cropPlacements[placementIndex];
+Line 761: final spacing = CropSpacing.spacingMetersForCrop(placement.cropName);
+Line 763: final snappedX = _snapCropCoordinate(
+Line 769: final snappedY = _snapCropCoordinate(
+Line 777: _recordHistory();
+Line 779: final updatedPlacements = [...bed.cropPlacements];
+Line 786: final updatedBeds = [...beds];
+Line 792: notifyListeners();
+Line 795: void removeCropPlacement({
+Line 799: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 802: final bed = beds[bedIndex];
+Line 804: final updatedPlacements = bed.cropPlacements
+Line 810: _recordHistory();
+Line 812: final updatedBeds = [...beds];
+Line 818: notifyListeners();
+Line 821: void addCropBlockToSelectedBed(String cropName) {
+Line 824: final targetCrop = cropName.trim();
+Line 827: final bedIndex = beds.indexWhere((bed) => bed.id == selectedBedId);
+Line 830: final bed = beds[bedIndex];
+Line 831: final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+Line 833: final existingCropsLower = bed.crops
+Line 838: final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+Line 842: final blockWidth = _clampDouble(spacing * 8, spacing, bed.width);
+Line 843: final blockHeight = _clampDouble(spacing * 2, spacing, bed.height);
+Line 845: final nextPosition = _nextCropBlockPosition(
+Line 853: final block = CropBlock(
+Line 862: _recordHistory();
+Line 864: final updatedBeds = [...beds];
+Line 873: notifyListeners();
+Line 876: void addCropBlockToBedAt({
+Line 882: final targetCrop = cropName.trim();
+Line 885: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 888: final bed = beds[bedIndex];
+Line 889: final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+Line 891: final existingCropsLower = bed.crops
+Line 896: final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+Line 900: final blockWidth = _clampDouble(
+Line 902: _clampDouble(2.8, spacing, bed.width),
+Line 906: final blockHeight = _clampDouble(
+Line 908: _clampDouble(1.25, spacing, bed.height),
+Line 912: final localX = _clampDouble(
+Line 918: final localY = _clampDouble(
+Line 924: final block = CropBlock(
+Line 933: _recordHistory();
+Line 935: final updatedBeds = [...beds];
+Line 946: notifyListeners();
+Line 949: void addExactCropBlockToBed({
+Line 957: final targetCrop = cropName.trim();
+Line 960: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 963: final bed = beds[bedIndex];
+Line 965: final safeWidth = _clampDouble(width, 0.04, bed.width);
+Line 966: final safeHeight = _clampDouble(height, 0.04, bed.height);
+Line 968: final safeX = _clampDouble(x, 0, bed.width - safeWidth);
+Line 969: final safeY = _clampDouble(y, 0, bed.height - safeHeight);
+Line 971: final existingCropsLower = bed.crops
+Line 976: final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+Line 980: final block = CropBlock(
+Line 989: _recordHistory();
+Line 991: final updatedBeds = [...beds];
+Line 1002: notifyListeners();
+Line 1005: void addCropRowToBedRect({
+Line 1013: final targetCrop = cropName.trim();
+Line 1016: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 1019: final bed = beds[bedIndex];
+Line 1020: final spacing = CropSpacing.spacingMetersForCrop(targetCrop);
+Line 1022: final existingCropsLower = bed.crops
+Line 1027: final updatedCrops = existingCropsLower.contains(targetCrop.toLowerCase())
+Line 1031: late final CropBlock block;
+Line 1034: final size = _clampDouble(
+Line 1036: _clampDouble(
+Line 1044: final centerX = ((startX + endX) / 2) - bed.x;
+Line 1045: final centerY = ((startY + endY) / 2) - bed.y;
+Line 1047: final blockX = _clampDouble(centerX - size / 2, 0, bed.width - size);
+Line 1048: final blockY = _clampDouble(centerY - size / 2, 0, bed.height - size);
+Line 1059: final dx = (endX - startX).abs();
+Line 1060: final dy = (endY - startY).abs();
+Line 1061: final horizontal = dx >= dy;
+Line 1063: final rowThickness = _clampDouble(
+Line 1065: _clampDouble(0.65, spacing, horizontal ? bed.height : bed.width),
+Line 1069: final minRowLength = _clampDouble(
+Line 1075: final rawLength = horizontal ? dx : dy;
+Line 1076: final rowLength = _clampDouble(
+Line 1082: final centerX = ((startX + endX) / 2) - bed.x;
+Line 1083: final centerY = ((startY + endY) / 2) - bed.y;
+Line 1085: late final double blockX;
+Line 1086: late final double blockY;
+Line 1087: late final double blockWidth;
+Line 1088: late final double blockHeight;
+Line 1132: _recordHistory();
+Line 1134: final updatedBeds = [...beds];
+Line 1145: notifyListeners();
+Line 1148: void moveCropBlock({
+Line 1154: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 1157: final bed = beds[bedIndex];
+Line 1159: final blockIndex = bed.cropBlocks.indexWhere(
+Line 1165: final block = bed.cropBlocks[blockIndex];
+Line 1167: final maxX = bed.width - block.width;
+Line 1168: final maxY = bed.height - block.height;
+Line 1170: final nextX = _clampDouble(x, 0, maxX < 0 ? 0 : maxX);
+Line 1171: final nextY = _clampDouble(y, 0, maxY < 0 ? 0 : maxY);
+Line 1175: final updatedBlocks = [...bed.cropBlocks];
+Line 1178: _recordHistory();
+Line 1180: final updatedBeds = [...beds];
+Line 1187: notifyListeners();
+Line 1190: void duplicateCropBlock({required String bedId, required String blockId}) {
+Line 1191: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 1194: final bed = beds[bedIndex];
+Line 1196: final blockIndex = bed.cropBlocks.indexWhere(
+Line 1202: final block = bed.cropBlocks[blockIndex];
+Line 1203: final spacing = CropSpacing.spacingMetersForCrop(block.cropName);
+Line 1205: final maxX = bed.width - block.width;
+Line 1206: final maxY = bed.height - block.height;
+Line 1208: final nextX = _clampDouble(block.x + spacing, 0, maxX < 0 ? 0 : maxX);
+Line 1210: var nextY = block.y;
+Line 1216: final duplicate = block.copyWith(
+Line 1222: _recordHistory();
+Line 1224: final updatedBeds = [...beds];
+Line 1234: notifyListeners();
+Line 1237: void centerCropBlock({required String bedId, required String blockId}) {
+Line 1238: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 1241: final bed = beds[bedIndex];
+Line 1243: final blockIndex = bed.cropBlocks.indexWhere(
+Line 1249: final block = bed.cropBlocks[blockIndex];
+Line 1251: final nextX = _clampDouble(
+Line 1257: final nextY = _clampDouble(
+Line 1265: _recordHistory();
+Line 1267: final updatedBlocks = [...bed.cropBlocks];
+Line 1271: final updatedBeds = [...beds];
+Line 1278: notifyListeners();
+Line 1281: void removeCropBlock({required String bedId, required String blockId}) {
+Line 1282: final bedIndex = beds.indexWhere((bed) => bed.id == bedId);
+Line 1285: final bed = beds[bedIndex];
+Line 1287: final updatedBlocks = bed.cropBlocks
+Line 1293: _recordHistory();
+Line 1295: final updatedBeds = [...beds];
+Line 1301: notifyListeners();
+Line 1304: void updateSelectedBedStatus(BedStatus status) {
+Line 1305: _updateSelectedBed((bed) => bed.copyWith(status: status));
+Line 1308: void updateSelectedBedHealth(String value) {
+Line 1309: final parsed = double.tryParse(value);
+Line 1312: final normalized = _clampDouble(parsed / 100, 0.0, 1.0);
+Line 1314: _updateSelectedBed((bed) => bed.copyWith(healthPercent: normalized));
+Line 1317: void _updateSelectedBed(Bed Function(Bed bed) update) {
+Line 1320: final index = beds.indexWhere((bed) => bed.id == selectedBedId);
+Line 1323: final currentBed = beds[index];
+Line 1324: final updatedBed = update(currentBed);
+Line 1330: _recordHistory();
+Line 1332: final updatedBeds = [...beds];
+Line 1337: notifyListeners();
+Line 1340: Offset _nextCropPlacementPosition({
+Line 1345: final existingForCrop = bed.cropPlacements
+Line 1353: final columnCount = (bed.width / spacing).floor();
+Line 1354: final safeColumnCount = columnCount < 1 ? 1 : columnCount;
+Line 1356: final column = existingForCrop % safeColumnCount;
+Line 1357: final row = existingForCrop ~/ safeColumnCount;
+Line 1359: final rawX = spacing / 2 + column * spacing;
+Line 1360: final rawY = spacing / 2 + row * spacing;
+Line 1362: return Offset(
+Line 1363: _clampDouble(rawX, spacing / 2, bed.width - spacing / 2),
+Line 1364: _clampDouble(rawY, spacing / 2, bed.height - spacing / 2),
+Line 1368: Offset _nextCropBlockPosition({
+Line 1375: final existingForCrop = bed.cropBlocks
+Line 1383: final availableWidth = bed.width - blockWidth;
+Line 1384: final availableHeight = bed.height - blockHeight;
+Line 1386: final columnCount = availableWidth <= 0
+Line 1390: final column = existingForCrop % columnCount;
+Line 1391: final row = existingForCrop ~/ columnCount;
+Line 1393: final rawX = column * spacing;
+Line 1394: final rawY = row * spacing;
+Line 1396: return Offset(
+Line 1397: _clampDouble(rawX, 0, availableWidth),
+Line 1398: _clampDouble(rawY, 0, availableHeight),
+Line 1402: double _snapCropCoordinate({
+Line 1410: final halfSpacing = spacing / 2;
+Line 1416: final snapped =
+Line 1419: return _clampDouble(snapped, halfSpacing, max - halfSpacing);
+Line 1422: double _snapCropBlockCoordinate({
+Line 1431: final snapped = (value / spacing).round() * spacing;
+Line 1433: return _clampDouble(snapped, min, max);
+Line 1436: double _snapCropBlockSize({
+Line 1445: final snapped = (value / spacing).round() * spacing;
+Line 1447: return _clampDouble(snapped, min, max);
+Line 1450: bool _wouldOverlap(Bed candidate, String candidateId) {
+Line 1462: bool _bedsOverlap(Bed a, Bed b) {
+Line 1463: final leftA = a.x;
+Line 1464: final rightA = a.x + a.width;
+Line 1465: final topA = a.y;
+Line 1466: final bottomA = a.y + a.height;
+Line 1468: final leftB = b.x;
+Line 1469: final rightB = b.x + b.width;
+Line 1470: final topB = b.y;
+Line 1471: final bottomB = b.y + b.height;
+Line 1476: void _recordHistory() {
+Line 1487: double _snap(double value, double step) {
+Line 1491: double _clampDouble(double value, double min, double max) {

@@ -1,0 +1,1144 @@
+$ProjectRoot = "C:\Users\Danie\IdeaProjects\VitaLiteGEFIREMAKING"
+$PackageName = "theoretical.pid"
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$PackagePath = $PackageName.Replace(".", "\")
+$JavaRoot    = Join-Path $ProjectRoot "src\main\java\$PackagePath"
+$DocsRoot    = Join-Path $ProjectRoot "docs\theoretical-pid"
+$Timestamp   = Get-Date -Format "yyyyMMdd-HHmmss"
+$BackupRoot  = Join-Path $ProjectRoot ".rewrite-backup\theoretical-pid-total-replace-$Timestamp"
+$P           = "package $PackageName;"
+
+function New-Directory {
+    param([string]$Path)
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
+function Backup-Path {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        return
+    }
+
+    $relative = $Path.Substring($ProjectRoot.Length).TrimStart("\", "/")
+    $dest = Join-Path $BackupRoot $relative
+    $parent = Split-Path $dest -Parent
+
+    New-Directory $parent
+    Copy-Item -Path $Path -Destination $dest -Recurse -Force
+
+    Write-Host "Backed up: $relative"
+}
+
+function Write-GeneratedFile {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+
+    $dir = Split-Path $Path -Parent
+    New-Directory $dir
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    [System.IO.File]::WriteAllText($Path, ($Content.Trim() + [Environment]::NewLine), $utf8NoBom)
+
+    Write-Host "Wrote: $Path"
+}
+
+New-Directory $BackupRoot
+
+if (Test-Path $JavaRoot) {
+    Backup-Path $JavaRoot
+    Remove-Item -Path $JavaRoot -Recurse -Force
+}
+
+if (Test-Path $DocsRoot) {
+    Backup-Path $DocsRoot
+    Remove-Item -Path $DocsRoot -Recurse -Force
+}
+
+New-Directory $JavaRoot
+New-Directory $DocsRoot
+
+$ApiNotes = @"
+# Theoretical PID + Tick-Dance Movement
+
+Total replace version.
+
+Removed:
+- VitaLiteStatic
+- reflection API wrapper
+- raw PID certainty claims
+- damage-source attribution claims
+- recoil/vengeance attribution claims
+- unsupported SceneAPI.canPathTo usage
+- PlayerAPI.getLocal() -> Player assignment bug
+
+Direct API calls used:
+- PlayerAPI.getLocal()
+- PlayerEx.getPlayer()
+- ActorAPI.getInCombatWith()
+- GameAPI.isLoggedIn()
+- GameAPI.isInCutscene()
+- GameAPI.isScreenFading()
+- GameAPI.getWildyLevel()
+- CombatAPI.isInPvpArea()
+- CombatAPI.inMultiWay()
+- CombatAPI.getHealth()
+- CombatAPI.isPoisoned()
+- CombatAPI.isVenomed()
+- CombatAPI.getNextPoisonDamage()
+- CombatAPI.isSpecEnabled()
+- CombatAPI.getSpecEnergy()
+- MovementAPI.isMoving()
+- MovementAPI.getDestinationWorldPoint()
+- MovementAPI.canPathTo(WorldPoint)
+- SceneAPI.isReachable(WorldPoint)
+- SceneAPI.isReachable(WorldPoint, WorldPoint)
+- SceneAPI.hasLineOfSightTo(WorldPoint, WorldPoint)
+- SceneAPI.checkPointsTo(WorldPoint, WorldPoint)
+
+This overlay does not click, attack, move, or automate input.
+It only reads state and renders tile/movement estimates.
+"@
+
+$TilePointJava = @"
+$P
+
+import net.runelite.api.coords.WorldPoint;
+
+public final class TilePoint {
+    public final int x;
+    public final int y;
+    public final int plane;
+
+    public TilePoint(int x, int y, int plane) {
+        this.x = x;
+        this.y = y;
+        this.plane = plane;
+    }
+
+    public static TilePoint of(WorldPoint wp) {
+        if (wp == null) {
+            return null;
+        }
+        return new TilePoint(wp.getX(), wp.getY(), wp.getPlane());
+    }
+
+    public WorldPoint toWorldPoint() {
+        return new WorldPoint(x, y, plane);
+    }
+
+    public int chebyshevDistance(TilePoint other) {
+        if (other == null || plane != other.plane) {
+            return Integer.MAX_VALUE;
+        }
+        return Math.max(Math.abs(x - other.x), Math.abs(y - other.y));
+    }
+
+    public TilePoint stepToward(TilePoint destination) {
+        if (destination == null || plane != destination.plane) {
+            return this;
+        }
+
+        int dx = Integer.compare(destination.x, x);
+        int dy = Integer.compare(destination.y, y);
+
+        return new TilePoint(x + dx, y + dy, plane);
+    }
+
+    @Override
+    public String toString() {
+        return "TilePoint{x=" + x + ", y=" + y + ", plane=" + plane + "}";
+    }
+}
+"@
+
+$FightValidityJava = @"
+$P
+
+public enum FightValidity {
+    VALID_ONE_V_ONE,
+    GAME_STATE_INVALID,
+    NOT_IN_PVP,
+    MULTIWAY,
+    NO_LOCAL_PLAYER,
+    NO_TARGET,
+    DIFFERENT_PLANE
+}
+"@
+
+$TickDanceStatusJava = @"
+$P
+
+public enum TickDanceStatus {
+    NOT_MOVING,
+    MOVING_TO_RANGE,
+    MOVING_AWAY,
+    ORBITING_TARGET,
+    CROSSING_TARGET,
+    STALLED_OR_BLOCKED,
+    UNKNOWN
+}
+"@
+
+$MovementSnapshotJava = @"
+$P
+
+public final class MovementSnapshot {
+    public final TilePoint currentTile;
+    public final TilePoint destinationTile;
+    public final TilePoint predictedNextTile;
+    public final boolean moving;
+    public final boolean hasDestination;
+    public final boolean pathableToDestination;
+    public final boolean reachableDestination;
+    public final int pathLengthToDestination;
+
+    public MovementSnapshot(TilePoint currentTile,
+                            TilePoint destinationTile,
+                            TilePoint predictedNextTile,
+                            boolean moving,
+                            boolean pathableToDestination,
+                            boolean reachableDestination,
+                            int pathLengthToDestination) {
+        this.currentTile = currentTile;
+        this.destinationTile = destinationTile;
+        this.predictedNextTile = predictedNextTile;
+        this.moving = moving;
+        this.hasDestination = destinationTile != null;
+        this.pathableToDestination = pathableToDestination;
+        this.reachableDestination = reachableDestination;
+        this.pathLengthToDestination = pathLengthToDestination;
+    }
+
+    public static MovementSnapshot stationary(TilePoint currentTile) {
+        return new MovementSnapshot(
+                currentTile,
+                null,
+                currentTile,
+                false,
+                false,
+                false,
+                0
+        );
+    }
+}
+"@
+
+$TickDanceEstimateJava = @"
+$P
+
+public final class TickDanceEstimate {
+    public final TickDanceStatus status;
+    public final TilePoint currentTile;
+    public final TilePoint destinationTile;
+    public final TilePoint predictedNextTile;
+    public final int distanceNow;
+    public final int distanceNext;
+    public final int confidence;
+    public final String reason;
+
+    public TickDanceEstimate(TickDanceStatus status,
+                             TilePoint currentTile,
+                             TilePoint destinationTile,
+                             TilePoint predictedNextTile,
+                             int distanceNow,
+                             int distanceNext,
+                             int confidence,
+                             String reason) {
+        this.status = status;
+        this.currentTile = currentTile;
+        this.destinationTile = destinationTile;
+        this.predictedNextTile = predictedNextTile;
+        this.distanceNow = distanceNow;
+        this.distanceNext = distanceNext;
+        this.confidence = clamp(confidence);
+        this.reason = reason == null ? "" : reason;
+    }
+
+    private static int clamp(int value) {
+        return Math.max(0, Math.min(100, value));
+    }
+}
+"@
+
+$TileScoreJava = @"
+$P
+
+public final class TileScore {
+    public final TilePoint tile;
+    public final int distanceToTarget;
+    public final boolean reachable;
+    public final boolean pathable;
+    public final boolean lineOfSight;
+    public final boolean inRange;
+    public final boolean improvesDanceDistance;
+    public final int score;
+
+    public TileScore(TilePoint tile,
+                     int distanceToTarget,
+                     boolean reachable,
+                     boolean pathable,
+                     boolean lineOfSight,
+                     boolean inRange,
+                     boolean improvesDanceDistance,
+                     int score) {
+        this.tile = tile;
+        this.distanceToTarget = distanceToTarget;
+        this.reachable = reachable;
+        this.pathable = pathable;
+        this.lineOfSight = lineOfSight;
+        this.inRange = inRange;
+        this.improvesDanceDistance = improvesDanceDistance;
+        this.score = score;
+    }
+
+    public static TileScore score(TilePoint tile,
+                                  TilePoint target,
+                                  int currentDistance,
+                                  boolean reachable,
+                                  boolean pathable,
+                                  boolean lineOfSight,
+                                  int weaponRange) {
+        int distance = tile == null ? Integer.MAX_VALUE : tile.chebyshevDistance(target);
+        boolean inRange = distance <= Math.max(1, weaponRange);
+        boolean improvesDanceDistance = distance >= currentDistance && distance <= currentDistance + 2;
+
+        int s = 0;
+
+        if (reachable) {
+            s += 25;
+        }
+        if (pathable) {
+            s += 25;
+        }
+        if (lineOfSight) {
+            s += 20;
+        }
+        if (inRange) {
+            s += 20;
+        }
+        if (improvesDanceDistance) {
+            s += 20;
+        }
+
+        if (!reachable || !pathable) {
+            s -= 45;
+        }
+        if (!lineOfSight) {
+            s -= 20;
+        }
+        if (distance == 0) {
+            s -= 30;
+        }
+
+        return new TileScore(
+                tile,
+                distance,
+                reachable,
+                pathable,
+                lineOfSight,
+                inRange,
+                improvesDanceDistance,
+                s
+        );
+    }
+}
+"@
+
+$OverlayStateJava = @"
+$P
+
+import java.util.Collections;
+import java.util.List;
+
+public final class OverlayState {
+    public final FightValidity validity;
+    public final TilePoint localTile;
+    public final TilePoint targetTile;
+    public final MovementSnapshot movement;
+    public final TickDanceEstimate tickDance;
+    public final boolean localMoving;
+    public final boolean specialEnabled;
+    public final boolean poisonedOrVenomed;
+    public final int nextPoisonDamage;
+    public final int wildyLevel;
+    public final int hitpoints;
+    public final int specEnergy;
+    public final String targetName;
+    public final List<TileScore> tiles;
+
+    public OverlayState(FightValidity validity,
+                        TilePoint localTile,
+                        TilePoint targetTile,
+                        MovementSnapshot movement,
+                        TickDanceEstimate tickDance,
+                        boolean localMoving,
+                        boolean specialEnabled,
+                        boolean poisonedOrVenomed,
+                        int nextPoisonDamage,
+                        int wildyLevel,
+                        int hitpoints,
+                        int specEnergy,
+                        String targetName,
+                        List<TileScore> tiles) {
+        this.validity = validity;
+        this.localTile = localTile;
+        this.targetTile = targetTile;
+        this.movement = movement;
+        this.tickDance = tickDance;
+        this.localMoving = localMoving;
+        this.specialEnabled = specialEnabled;
+        this.poisonedOrVenomed = poisonedOrVenomed;
+        this.nextPoisonDamage = nextPoisonDamage;
+        this.wildyLevel = wildyLevel;
+        this.hitpoints = hitpoints;
+        this.specEnergy = specEnergy;
+        this.targetName = targetName == null ? "?" : targetName;
+        this.tiles = tiles == null ? Collections.emptyList() : Collections.unmodifiableList(tiles);
+    }
+}
+"@
+
+$ScenePointUtilJava = @"
+$P
+
+import net.runelite.api.Tile;
+import net.runelite.api.coords.WorldPoint;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public final class ScenePointUtil {
+    private ScenePointUtil() {
+    }
+
+    public static List<WorldPoint> toWorldPoints(Object value) {
+        if (value == null) {
+            return Collections.emptyList();
+        }
+
+        if (value instanceof WorldPoint) {
+            List<WorldPoint> single = new ArrayList<>();
+            single.add((WorldPoint) value);
+            return single;
+        }
+
+        if (!(value instanceof List<?>)) {
+            return Collections.emptyList();
+        }
+
+        List<WorldPoint> result = new ArrayList<>();
+
+        for (Object item : (List<?>) value) {
+            WorldPoint point = toWorldPoint(item);
+            if (point != null) {
+                result.add(point);
+            }
+        }
+
+        return result;
+    }
+
+    public static WorldPoint toWorldPoint(Object item) {
+        if (item == null) {
+            return null;
+        }
+
+        if (item instanceof WorldPoint) {
+            return (WorldPoint) item;
+        }
+
+        if (item instanceof Tile) {
+            return ((Tile) item).getWorldLocation();
+        }
+
+        try {
+            Method method = item.getClass().getMethod("getWorldLocation");
+            Object value = method.invoke(item);
+            return value instanceof WorldPoint ? (WorldPoint) value : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+}
+"@
+
+$MovementPredictorJava = @"
+$P
+
+import com.tonic.api.MovementAPI;
+import com.tonic.api.SceneAPI;
+import net.runelite.api.coords.WorldPoint;
+
+import java.util.List;
+
+public final class MovementPredictor {
+    public MovementSnapshot snapshot(WorldPoint currentWorldPoint) {
+        TilePoint current = TilePoint.of(currentWorldPoint);
+
+        if (currentWorldPoint == null) {
+            return MovementSnapshot.stationary(null);
+        }
+
+        boolean moving = MovementAPI.isMoving();
+        WorldPoint destinationWorldPoint = MovementAPI.getDestinationWorldPoint();
+
+        if (!moving || destinationWorldPoint == null) {
+            return MovementSnapshot.stationary(current);
+        }
+
+        TilePoint destination = TilePoint.of(destinationWorldPoint);
+        boolean pathable = MovementAPI.canPathTo(destinationWorldPoint);
+        boolean reachable = SceneAPI.isReachable(currentWorldPoint, destinationWorldPoint);
+
+        Object pathObject = SceneAPI.checkPointsTo(currentWorldPoint, destinationWorldPoint);
+        List<WorldPoint> path = ScenePointUtil.toWorldPoints(pathObject);
+
+        TilePoint predictedNext = predictNextTile(current, destination, path);
+
+        return new MovementSnapshot(
+                current,
+                destination,
+                predictedNext,
+                true,
+                pathable,
+                reachable,
+                path == null ? 0 : path.size()
+        );
+    }
+
+    private TilePoint predictNextTile(TilePoint current, TilePoint destination, List<WorldPoint> path) {
+        if (current == null) {
+            return null;
+        }
+
+        if (path != null) {
+            for (WorldPoint point : path) {
+                TilePoint tile = TilePoint.of(point);
+                if (tile != null && tile.chebyshevDistance(current) > 0) {
+                    return tile;
+                }
+            }
+        }
+
+        if (destination == null) {
+            return current;
+        }
+
+        return current.stepToward(destination);
+    }
+}
+"@
+
+$TickDanceModelJava = @"
+$P
+
+public final class TickDanceModel {
+    public TickDanceEstimate estimate(MovementSnapshot movement,
+                                      TilePoint targetTile,
+                                      int weaponRange) {
+        if (movement == null || movement.currentTile == null || targetTile == null) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.UNKNOWN,
+                    movement == null ? null : movement.currentTile,
+                    movement == null ? null : movement.destinationTile,
+                    movement == null ? null : movement.predictedNextTile,
+                    Integer.MAX_VALUE,
+                    Integer.MAX_VALUE,
+                    0,
+                    "Missing movement or target tile"
+            );
+        }
+
+        int distanceNow = movement.currentTile.chebyshevDistance(targetTile);
+        TilePoint next = movement.predictedNextTile == null ? movement.currentTile : movement.predictedNextTile;
+        int distanceNext = next.chebyshevDistance(targetTile);
+        int range = Math.max(1, weaponRange);
+
+        if (!movement.moving) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.NOT_MOVING,
+                    movement.currentTile,
+                    movement.destinationTile,
+                    next,
+                    distanceNow,
+                    distanceNext,
+                    85,
+                    "Local player is not moving"
+            );
+        }
+
+        if (!movement.pathableToDestination || !movement.reachableDestination) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.STALLED_OR_BLOCKED,
+                    movement.currentTile,
+                    movement.destinationTile,
+                    next,
+                    distanceNow,
+                    distanceNext,
+                    70,
+                    "Destination is not pathable or not reachable"
+            );
+        }
+
+        if (distanceNext <= range && distanceNow > range) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.MOVING_TO_RANGE,
+                    movement.currentTile,
+                    movement.destinationTile,
+                    next,
+                    distanceNow,
+                    distanceNext,
+                    80,
+                    "Next tile moves into attack range"
+            );
+        }
+
+        if (distanceNext > distanceNow) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.MOVING_AWAY,
+                    movement.currentTile,
+                    movement.destinationTile,
+                    next,
+                    distanceNow,
+                    distanceNext,
+                    75,
+                    "Next tile increases distance from target"
+            );
+        }
+
+        if (distanceNext == distanceNow && distanceNow <= range + 1) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.ORBITING_TARGET,
+                    movement.currentTile,
+                    movement.destinationTile,
+                    next,
+                    distanceNow,
+                    distanceNext,
+                    75,
+                    "Next tile preserves close distance around target"
+            );
+        }
+
+        if (distanceNext < distanceNow && distanceNext == 0) {
+            return new TickDanceEstimate(
+                    TickDanceStatus.CROSSING_TARGET,
+                    movement.currentTile,
+                    movement.destinationTile,
+                    next,
+                    distanceNow,
+                    distanceNext,
+                    60,
+                    "Next tile overlaps target tile"
+            );
+        }
+
+        return new TickDanceEstimate(
+                TickDanceStatus.UNKNOWN,
+                movement.currentTile,
+                movement.destinationTile,
+                next,
+                distanceNow,
+                distanceNext,
+                45,
+                "Movement does not match a clean tick-dance category"
+        );
+    }
+}
+"@
+
+$TheoreticalPidConfigJava = @"
+$P
+
+import net.runelite.client.config.Config;
+import net.runelite.client.config.ConfigGroup;
+import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Range;
+
+@ConfigGroup("theoreticalpid")
+public interface TheoreticalPidConfig extends Config {
+    @ConfigItem(
+            keyName = "showTileOverlay",
+            name = "Show tile overlay",
+            description = "Show reachable/pathable/line-of-sight tiles around the local player"
+    )
+    default boolean showTileOverlay() {
+        return true;
+    }
+
+    @ConfigItem(
+            keyName = "showInfoPanel",
+            name = "Show info panel",
+            description = "Show current VitaLite reads and tick-dance movement estimate"
+    )
+    default boolean showInfoPanel() {
+        return true;
+    }
+
+    @Range(min = 1, max = 4)
+    @ConfigItem(
+            keyName = "overlayRadius",
+            name = "Tile scan radius",
+            description = "Radius around the local player to scan"
+    )
+    default int overlayRadius() {
+        return 2;
+    }
+
+    @Range(min = 1, max = 10)
+    @ConfigItem(
+            keyName = "assumedWeaponRange",
+            name = "Assumed weapon range",
+            description = "Range used for tick-dance and tile scoring when weapon metadata is unavailable"
+    )
+    default int assumedWeaponRange() {
+        return 1;
+    }
+}
+"@
+
+$TheoreticalPidOverlayJava = @"
+$P
+
+import net.runelite.api.Client;
+import net.runelite.api.Perspective;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
+import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.OverlayPriority;
+
+import javax.inject.Inject;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.Polygon;
+
+public class TheoreticalPidOverlay extends Overlay {
+    private static final Color GOOD = new Color(0, 170, 0, 110);
+    private static final Color WARN = new Color(220, 180, 0, 110);
+    private static final Color BAD = new Color(200, 0, 0, 110);
+    private static final Color NEXT = new Color(0, 140, 255, 150);
+    private static final Color DEST = new Color(180, 0, 255, 130);
+    private static final Color TEXT_SHADOW = Color.BLACK;
+
+    private final Client client;
+    private final TheoreticalPidPlugin plugin;
+    private final TheoreticalPidConfig config;
+
+    @Inject
+    public TheoreticalPidOverlay(Client client, TheoreticalPidPlugin plugin, TheoreticalPidConfig config) {
+        this.client = client;
+        this.plugin = plugin;
+        this.config = config;
+        setPosition(OverlayPosition.DYNAMIC);
+        setLayer(OverlayLayer.ABOVE_SCENE);
+        setPriority(OverlayPriority.LOW);
+    }
+
+    @Override
+    public Dimension render(Graphics2D graphics) {
+        OverlayState state = plugin.getOverlayState();
+
+        if (state == null) {
+            return null;
+        }
+
+        if (config.showTileOverlay()) {
+            for (TileScore score : state.tiles) {
+                renderTile(graphics, score.tile == null ? null : score.tile.toWorldPoint(), pickColor(score));
+            }
+
+            if (state.movement != null) {
+                if (state.movement.destinationTile != null) {
+                    renderTile(graphics, state.movement.destinationTile.toWorldPoint(), DEST);
+                }
+
+                if (state.movement.predictedNextTile != null) {
+                    renderTile(graphics, state.movement.predictedNextTile.toWorldPoint(), NEXT);
+                }
+            }
+        }
+
+        if (config.showInfoPanel()) {
+            renderInfo(graphics, state);
+        }
+
+        return null;
+    }
+
+    private Color pickColor(TileScore score) {
+        if (score.reachable && score.pathable && score.lineOfSight && score.inRange) {
+            return GOOD;
+        }
+
+        if (score.reachable || score.pathable) {
+            return WARN;
+        }
+
+        return BAD;
+    }
+
+    private void renderTile(Graphics2D graphics, WorldPoint worldPoint, Color fill) {
+        if (worldPoint == null) {
+            return;
+        }
+
+        LocalPoint localPoint = LocalPoint.fromWorld(client, worldPoint);
+
+        if (localPoint == null) {
+            return;
+        }
+
+        Polygon polygon = Perspective.getCanvasTilePoly(client, localPoint);
+
+        if (polygon == null) {
+            return;
+        }
+
+        graphics.setColor(fill);
+        graphics.fill(polygon);
+        graphics.setColor(fill.darker());
+        graphics.draw(polygon);
+    }
+
+    private void renderInfo(Graphics2D graphics, OverlayState state) {
+        int x = 10;
+        int y = 36;
+        int h = 14;
+
+        graphics.setFont(new Font("Arial", Font.PLAIN, 11));
+
+        drawLine(graphics, x, y, "Validity: " + state.validity, Color.WHITE);
+        drawLine(graphics, x, y + h, "Target: " + state.targetName, Color.WHITE);
+        drawLine(graphics, x, y + h * 2, "Wildy: " + state.wildyLevel + " | HP: " + state.hitpoints + " | Spec: " + state.specEnergy, Color.WHITE);
+        drawLine(graphics, x, y + h * 3, "Moving: " + state.localMoving + " | Spec enabled: " + state.specialEnabled, Color.WHITE);
+
+        if (state.tickDance != null) {
+            drawLine(graphics, x, y + h * 4, "Tick dance: " + state.tickDance.status + " @" + state.tickDance.confidence + "%", Color.WHITE);
+            drawLine(graphics, x, y + h * 5, "Dist now/next: " + state.tickDance.distanceNow + " -> " + state.tickDance.distanceNext, Color.WHITE);
+            drawLine(graphics, x, y + h * 6, "Reason: " + state.tickDance.reason, Color.WHITE);
+        }
+
+        if (state.movement != null) {
+            drawLine(graphics, x, y + h * 7, "Dest: " + state.movement.destinationTile + " | Path len: " + state.movement.pathLengthToDestination, Color.WHITE);
+        }
+    }
+
+    private void drawLine(Graphics2D graphics, int x, int y, String text, Color color) {
+        graphics.setColor(TEXT_SHADOW);
+        graphics.drawString(text, x + 1, y + 1);
+        graphics.setColor(color);
+        graphics.drawString(text, x, y);
+    }
+}
+"@
+
+$TheoreticalPidPluginJava = @"
+$P
+
+import com.google.inject.Provides;
+import com.tonic.api.CombatAPI;
+import com.tonic.api.GameAPI;
+import com.tonic.api.MovementAPI;
+import com.tonic.api.SceneAPI;
+import com.tonic.api.entities.ActorAPI;
+import com.tonic.api.entities.PlayerAPI;
+import com.tonic.data.wrappers.PlayerEx;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Actor;
+import net.runelite.api.Client;
+import net.runelite.api.Player;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.GameTick;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.overlay.OverlayManager;
+
+import javax.inject.Inject;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+@Slf4j
+@PluginDescriptor(
+        name = "Theoretical PID",
+        description = "PvP tick-dance movement overlay using direct VitaLite API calls",
+        tags = { "pvp", "pid", "tick", "dance", "movement", "overlay" }
+)
+public class TheoreticalPidPlugin extends Plugin {
+    @Inject private Client client;
+    @Inject private OverlayManager overlayManager;
+    @Inject private TheoreticalPidOverlay overlay;
+    @Inject private TheoreticalPidConfig config;
+
+    private final MovementPredictor movementPredictor = new MovementPredictor();
+    private final TickDanceModel tickDanceModel = new TickDanceModel();
+
+    private OverlayState overlayState;
+
+    public OverlayState getOverlayState() {
+        return overlayState;
+    }
+
+    @Override
+    protected void startUp() {
+        overlayManager.add(overlay);
+        log.info("Theoretical PID started");
+    }
+
+    @Override
+    protected void shutDown() {
+        overlayManager.remove(overlay);
+        overlayState = null;
+        log.info("Theoretical PID stopped");
+    }
+
+    @Subscribe
+    public void onGameTick(GameTick event) {
+        if (!GameAPI.isLoggedIn() || GameAPI.isInCutscene() || GameAPI.isScreenFading()) {
+            overlayState = null;
+            return;
+        }
+
+        Player local = getLocalPlayer();
+        Actor target = getCombatTarget(local);
+
+        FightValidity validity = assessFightValidity(local, target);
+
+        if (validity != FightValidity.VALID_ONE_V_ONE) {
+            overlayState = stateForInvalid(validity, local, target);
+            return;
+        }
+
+        WorldPoint localPoint = local.getWorldLocation();
+        WorldPoint targetPoint = target.getWorldLocation();
+
+        MovementSnapshot movement = movementPredictor.snapshot(localPoint);
+        TickDanceEstimate tickDance = tickDanceModel.estimate(
+                movement,
+                TilePoint.of(targetPoint),
+                config.assumedWeaponRange()
+        );
+
+        overlayState = new OverlayState(
+                validity,
+                TilePoint.of(localPoint),
+                TilePoint.of(targetPoint),
+                movement,
+                tickDance,
+                MovementAPI.isMoving(),
+                CombatAPI.isSpecEnabled(),
+                CombatAPI.isPoisoned() || CombatAPI.isVenomed(),
+                CombatAPI.getNextPoisonDamage(),
+                GameAPI.getWildyLevel(),
+                CombatAPI.getHealth(),
+                CombatAPI.getSpecEnergy(),
+                target.getName(),
+                scoreTiles(localPoint, targetPoint)
+        );
+    }
+
+    private Player getLocalPlayer() {
+        PlayerEx localEx = PlayerAPI.getLocal();
+
+        if (localEx != null && localEx.getPlayer() != null) {
+            return localEx.getPlayer();
+        }
+
+        return client == null ? null : client.getLocalPlayer();
+    }
+
+    private Actor getCombatTarget(Player local) {
+        Object raw = ActorAPI.getInCombatWith();
+        Actor converted = toActor(raw);
+
+        if (converted != null) {
+            return converted;
+        }
+
+        return local == null ? null : local.getInteracting();
+    }
+
+    private Actor toActor(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+
+        if (raw instanceof Actor) {
+            return (Actor) raw;
+        }
+
+        Actor actor = callActorGetter(raw, "getActor");
+        if (actor != null) {
+            return actor;
+        }
+
+        actor = callActorGetter(raw, "getPlayer");
+        if (actor != null) {
+            return actor;
+        }
+
+        return callActorGetter(raw, "getNpc");
+    }
+
+    private Actor callActorGetter(Object target, String methodName) {
+        try {
+            Method method = target.getClass().getMethod(methodName);
+            Object value = method.invoke(target);
+            return value instanceof Actor ? (Actor) value : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private FightValidity assessFightValidity(Player local, Actor target) {
+        if (local == null) {
+            return FightValidity.NO_LOCAL_PLAYER;
+        }
+
+        if (target == null) {
+            return FightValidity.NO_TARGET;
+        }
+
+        if (!CombatAPI.isInPvpArea() && GameAPI.getWildyLevel() <= 0) {
+            return FightValidity.NOT_IN_PVP;
+        }
+
+        if (CombatAPI.inMultiWay()) {
+            return FightValidity.MULTIWAY;
+        }
+
+        WorldPoint localPoint = local.getWorldLocation();
+        WorldPoint targetPoint = target.getWorldLocation();
+
+        if (localPoint == null || targetPoint == null || localPoint.getPlane() != targetPoint.getPlane()) {
+            return FightValidity.DIFFERENT_PLANE;
+        }
+
+        return FightValidity.VALID_ONE_V_ONE;
+    }
+
+    private OverlayState stateForInvalid(FightValidity validity, Player local, Actor target) {
+        MovementSnapshot movement = local == null ? null : movementPredictor.snapshot(local.getWorldLocation());
+
+        return new OverlayState(
+                validity,
+                local == null ? null : TilePoint.of(local.getWorldLocation()),
+                target == null ? null : TilePoint.of(target.getWorldLocation()),
+                movement,
+                null,
+                MovementAPI.isMoving(),
+                CombatAPI.isSpecEnabled(),
+                CombatAPI.isPoisoned() || CombatAPI.isVenomed(),
+                CombatAPI.getNextPoisonDamage(),
+                GameAPI.getWildyLevel(),
+                CombatAPI.getHealth(),
+                CombatAPI.getSpecEnergy(),
+                target == null ? "?" : target.getName(),
+                Collections.emptyList()
+        );
+    }
+
+    private List<TileScore> scoreTiles(WorldPoint localPoint, WorldPoint targetPoint) {
+        if (localPoint == null || targetPoint == null) {
+            return Collections.emptyList();
+        }
+
+        List<WorldPoint> candidates = surrounding(localPoint, config.overlayRadius());
+        List<TileScore> result = new ArrayList<>();
+
+        TilePoint localTile = TilePoint.of(localPoint);
+        TilePoint targetTile = TilePoint.of(targetPoint);
+        int currentDistance = localTile.chebyshevDistance(targetTile);
+
+        for (WorldPoint candidate : candidates) {
+            boolean reachable = SceneAPI.isReachable(localPoint, candidate);
+            boolean pathable = MovementAPI.canPathTo(candidate);
+            boolean los = SceneAPI.hasLineOfSightTo(candidate, targetPoint);
+
+            result.add(TileScore.score(
+                    TilePoint.of(candidate),
+                    targetTile,
+                    currentDistance,
+                    reachable,
+                    pathable,
+                    los,
+                    config.assumedWeaponRange()
+            ));
+        }
+
+        result.sort((a, b) -> Integer.compare(b.score, a.score));
+        return result;
+    }
+
+    private List<WorldPoint> surrounding(WorldPoint center, int radius) {
+        if (center == null) {
+            return Collections.emptyList();
+        }
+
+        int r = Math.max(1, Math.min(4, radius));
+        List<WorldPoint> points = new ArrayList<>();
+
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dy = -r; dy <= r; dy++) {
+                points.add(new WorldPoint(center.getX() + dx, center.getY() + dy, center.getPlane()));
+            }
+        }
+
+        return points;
+    }
+
+    @Provides
+    TheoreticalPidConfig provideConfig(ConfigManager configManager) {
+        return configManager.getConfig(TheoreticalPidConfig.class);
+    }
+}
+"@
+
+$Files = [ordered]@{
+    "TilePoint.java"             = $TilePointJava
+    "FightValidity.java"         = $FightValidityJava
+    "TickDanceStatus.java"       = $TickDanceStatusJava
+    "MovementSnapshot.java"      = $MovementSnapshotJava
+    "TickDanceEstimate.java"     = $TickDanceEstimateJava
+    "TileScore.java"             = $TileScoreJava
+    "OverlayState.java"          = $OverlayStateJava
+    "ScenePointUtil.java"        = $ScenePointUtilJava
+    "MovementPredictor.java"     = $MovementPredictorJava
+    "TickDanceModel.java"        = $TickDanceModelJava
+    "TheoreticalPidConfig.java"  = $TheoreticalPidConfigJava
+    "TheoreticalPidOverlay.java" = $TheoreticalPidOverlayJava
+    "TheoreticalPidPlugin.java"  = $TheoreticalPidPluginJava
+}
+
+Write-GeneratedFile (Join-Path $DocsRoot "API_NOTES.md") $ApiNotes
+
+foreach ($entry in $Files.GetEnumerator()) {
+    Write-GeneratedFile (Join-Path $JavaRoot $entry.Key) $entry.Value
+}
+
+Write-Host ""
+Write-Host "=============================================="
+Write-Host " Theoretical PID total replace written"
+Write-Host "=============================================="
+Write-Host "Project root : $ProjectRoot"
+Write-Host "Package      : $PackageName"
+Write-Host "Java path    : $JavaRoot"
+Write-Host "Docs path    : $DocsRoot"
+Write-Host "Backup path  : $BackupRoot"
+Write-Host "Files written: $($Files.Count) Java files + API_NOTES.md"
+Write-Host ""
+Write-Host "Next: reload/compile the project."

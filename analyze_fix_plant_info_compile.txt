@@ -1,0 +1,60 @@
+Resolving dependencies...
+Downloading packages...
+  meta 1.17.0 (1.18.2 available)
+  test_api 0.7.10 (0.7.11 available)
+  vector_math 2.2.0 (2.3.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing garden_planner...                                     
+
+warning - The declaration '_snapCropBlockCoordinate' isn't referenced - lib\features\planner\controller\garden_controller.dart:1422:10 - unused_element
+warning - The declaration '_snapCropBlockSize' isn't referenced - lib\features\planner\controller\garden_controller.dart:1436:10 - unused_element
+warning - Unused import: '../canvas/grid_painter.dart' - lib\features\planner\ui\garden_screen.dart:9:8 - unused_import
+warning - Unused import: 'widgets/draggable_bed.dart' - lib\features\planner\ui\garden_screen.dart:14:8 - unused_import
+warning - Unused import: 'widgets/plant_info_library_view.dart' - lib\features\planner\ui\garden_screen.dart:20:8 - unused_import
+  error - The type 'BedViewMode' isn't exhaustively matched by the switch cases since it doesn't match the pattern 'BedViewMode.info' - lib\features\planner\ui\garden_screen.dart:567:5 - non_exhaustive_switch_statement
+warning - The value of the field 'block' isn't used - lib\features\planner\ui\garden_screen.dart:605:28 - unused_field
+warning - The declaration '_PlacementSettings' isn't referenced - lib\features\planner\ui\garden_screen.dart:607:7 - unused_element
+warning - The value of the field 'defaults' isn't used - lib\features\planner\ui\garden_screen.dart:626:16 - unused_field
+warning - The declaration '_VisualBedPlantStrip' isn't referenced - lib\features\planner\ui\garden_screen.dart:802:7 - unused_element
+warning - The declaration '_issueEvidenceSummary' isn't referenced - lib\features\planner\ui\garden_screen.dart:1052:8 - unused_element
+warning - The declaration '_issueSourceLabel' isn't referenced - lib\features\planner\ui\garden_screen.dart:1155:8 - unused_element
+warning - The declaration '_issueMonitoringStep' isn't referenced - lib\features\planner\ui\garden_screen.dart:1178:8 - unused_element
+warning - The declaration '_issueSafetyNote' isn't referenced - lib\features\planner\ui\garden_screen.dart:1210:8 - unused_element
+warning - The declaration '_linkedPlantTotalForBed' isn't referenced - lib\features\planner\ui\garden_screen.dart:2522:5 - unused_element
+warning - The declaration '_LinkedBedPlantsPanel' isn't referenced - lib\features\planner\ui\garden_screen.dart:2528:7 - unused_element
+warning - The declaration '_ToolChip' isn't referenced - lib\features\planner\ui\garden_screen.dart:3348:7 - unused_element
+warning - The declaration '_FlexibleBedBadge' isn't referenced - lib\features\planner\ui\garden_screen.dart:4515:7 - unused_element
+warning - The declaration '_FlexibleCanvasHint' isn't referenced - lib\features\planner\ui\garden_screen.dart:4548:7 - unused_element
+warning - The declaration '_FlexiblePlantingBadge' isn't referenced - lib\features\planner\ui\garden_screen.dart:4584:7 - unused_element
+warning - The declaration '_FlexiblePathPreviewPainter' isn't referenced - lib\features\planner\ui\garden_screen.dart:4736:7 - unused_element
+warning - The declaration '_CropRowDraftPainter' isn't referenced - lib\features\planner\ui\garden_screen.dart:4823:7 - unused_element
+warning - The declaration '_NoBedDesignerPanel' isn't referenced - lib\features\planner\ui\garden_screen.dart:4952:7 - unused_element
+warning - The declaration '_plantingToolCard' isn't referenced - lib\features\planner\ui\garden_screen.dart:5296:10 - unused_element
+warning - The declaration '_MobileRoundMapButton' isn't referenced - lib\features\planner\ui\garden_screen.dart:6261:7 - unused_element
+warning - The declaration '_MobileTextMapButton' isn't referenced - lib\features\planner\ui\garden_screen.dart:6292:7 - unused_element
+warning - The declaration '_MobileMiniIconButton' isn't referenced - lib\features\planner\ui\garden_screen.dart:6327:7 - unused_element
+warning - The declaration '_BedPlanActionButton' isn't referenced - lib\features\planner\ui\garden_screen.dart:6363:7 - unused_element
+warning - A value for optional parameter 'primary' isn't ever given - lib\features\planner\ui\garden_screen.dart:6368:10 - unused_element_parameter
+warning - A value for optional parameter 'danger' isn't ever given - lib\features\planner\ui\garden_screen.dart:6369:10 - unused_element_parameter
+warning - The declaration '_MobileActionButton' isn't referenced - lib\features\planner\ui\garden_screen.dart:6451:7 - unused_element
+warning - A value for optional parameter 'primary' isn't ever given - lib\features\planner\ui\garden_screen.dart:6456:10 - unused_element_parameter
+warning - The value of the field 'emojiFontFallback' isn't used - lib\features\planner\ui\widgets\draggable_crop_block.dart:512:29 - unused_field
+warning - The value of the local variable 'emoji' isn't used - lib\features\planner\ui\widgets\draggable_crop_block.dart:824:11 - unused_local_variable
+warning - The value of the field 'latitude' isn't used - lib\features\planner\ui\widgets\live_soil_temp_planting_guide.dart:18:23 - unused_field
+warning - The value of the field 'longitude' isn't used - lib\features\planner\ui\widgets\live_soil_temp_planting_guide.dart:19:23 - unused_field
+warning - The declaration '_clearHighlight' isn't referenced - lib\features\planner\ui\widgets\seedlings_view.dart:413:8 - unused_element
+warning - The declaration '_resolveSeedCatalogItem' isn't referenced - lib\features\planner\ui\widgets\seedlings_view.dart:421:19 - unused_element
+warning - The declaration '_SeedlingsHeader' isn't referenced - lib\features\planner\ui\widgets\seedlings_view.dart:1554:7 - unused_element
+warning - The value of the local variable 'germinationStart' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2221:11 - unused_local_variable
+warning - The value of the local variable 'germinationEnd' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2224:11 - unused_local_variable
+warning - The value of the local variable 'transplantStart' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2227:11 - unused_local_variable
+warning - The value of the local variable 'transplantEnd' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2230:11 - unused_local_variable
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:1141:22 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:1143:41 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:1170:51 - deprecated_member_use
+warning - The declaration '_BedFertilityPanel' isn't referenced - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:2299:7 - unused_element
+
+47 issues found. (ran in 2.3s)

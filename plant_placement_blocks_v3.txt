@@ -1,0 +1,2254 @@
+﻿
+============================================================
+CLASS: _PathPlacementSettings
+============================================================
+LINES 2822-2874
+
+2822: class _PathPlacementSettings {
+2823:   const _PathPlacementSettings({
+2824:     required this.tool,
+2825:     required this.spacingMeters,
+2826:     required this.rowWidthMeters,
+2827:     required this.blockSizeMeters,
+2828:     required this.waveAmplitudeMeters,
+2829:     required this.waveFrequency,
+2830:   });
+2831: 
+2832:   final _PlacementTool tool;
+2833:   final double spacingMeters;
+2834:   final double rowWidthMeters;
+2835:   final double blockSizeMeters;
+2836:   final double waveAmplitudeMeters;
+2837:   final int waveFrequency;
+2838: 
+2839:   static const defaults = _PathPlacementSettings(
+2840:     tool: _PlacementTool.straight,
+2841:     spacingMeters: 0.45,
+2842:     rowWidthMeters: 0.12,
+2843:     blockSizeMeters: 0.18,
+2844:     waveAmplitudeMeters: 0.25,
+2845:     waveFrequency: 3,
+2846:   );
+2847: 
+2848:   _PathPlacementSettings copyWith({
+2849:     _PlacementTool? tool,
+2850:     double? spacingMeters,
+2851:     double? rowWidthMeters,
+2852:     double? blockSizeMeters,
+2853:     double? waveAmplitudeMeters,
+2854:     int? waveFrequency,
+2855:   }) {
+2856:     return _PathPlacementSettings(
+2857:       tool: tool ?? this.tool,
+2858:       spacingMeters: (spacingMeters ?? this.spacingMeters)
+2859:           .clamp(0.03, 2.0)
+2860:           .toDouble(),
+2861:       rowWidthMeters: (rowWidthMeters ?? this.rowWidthMeters)
+2862:           .clamp(0.04, 1.5)
+2863:           .toDouble(),
+2864:       blockSizeMeters: (blockSizeMeters ?? this.blockSizeMeters)
+2865:           .clamp(0.05, 2.0)
+2866:           .toDouble(),
+2867:       waveAmplitudeMeters: (waveAmplitudeMeters ?? this.waveAmplitudeMeters)
+2868:           .clamp(0.0, 2.0)
+2869:           .toDouble(),
+2870:       waveFrequency: (waveFrequency ?? this.waveFrequency).clamp(1, 12),
+2871:     );
+2872:   }
+2873: }
+2874: 
+
+============================================================
+CLASS: _MapView
+============================================================
+LINES 2875-3049
+
+2875: class _MapView extends StatefulWidget {
+2876:   const _MapView({
+2877:     required this.controller,
+2878:     required this.beds,
+2879:     required this.canvasWidth,
+2880:     required this.canvasHeight,
+2881:     required this.pixelsPerMeter,
+2882:     required this.onOpenBedDetails,
+2883:   });
+2884: 
+2885:   final GardenController controller;
+2886:   final List<Bed> beds;
+2887:   final double canvasWidth;
+2888:   final double canvasHeight;
+2889:   final double pixelsPerMeter;
+2890:   final ValueChanged<Bed> onOpenBedDetails;
+2891: 
+2892:   @override
+2893:   State<_MapView> createState() => _MapViewState();
+2894: }
+2895: 
+2896: class _MapViewState extends State<_MapView> {
+2897:   String? selectedBedId;
+2898:   String? activePlantName;
+2899: 
+2900:   _PathPlacementSettings settings = _PathPlacementSettings.defaults;
+2901: 
+2902:   static const String buildMarker =
+2903:       'fix-all-positional-containers-20260426_120019';
+2904: 
+2905:   Bed? get selectedBed {
+2906:     if (widget.beds.isEmpty) return null;
+2907: 
+2908:     final id = selectedBedId ?? widget.controller.selectedBedId;
+2909: 
+2910:     for (final bed in widget.beds) {
+2911:       if (bed.id == id) return bed;
+2912:     }
+2913: 
+2914:     return widget.beds.first;
+2915:   }
+2916: 
+2917:   @override
+2918:   void initState() {
+2919:     super.initState();
+2920: 
+2921:     if (widget.beds.isNotEmpty) {
+2922:       selectedBedId = widget.controller.selectedBedId ?? widget.beds.first.id;
+2923:       widget.controller.selectBed(selectedBedId!);
+2924:     }
+2925:   }
+2926: 
+2927:   @override
+2928:   void didUpdateWidget(covariant _MapView oldWidget) {
+2929:     super.didUpdateWidget(oldWidget);
+2930: 
+2931:     if (widget.beds.isEmpty) {
+2932:       selectedBedId = null;
+2933:       activePlantName = null;
+2934:       return;
+2935:     }
+2936: 
+2937:     final validSelection = widget.beds.any((bed) => bed.id == selectedBedId);
+2938: 
+2939:     if (!validSelection) {
+2940:       selectedBedId = widget.controller.selectedBedId ?? widget.beds.first.id;
+2941:       widget.controller.selectBed(selectedBedId!);
+2942:       activePlantName = null;
+2943:     }
+2944:   }
+2945: 
+2946:   @override
+2947:   Widget build(BuildContext context) {
+2948:     final bed = selectedBed;
+2949: 
+2950:     return Container(
+2951:       color: GardenTheme.cream,
+2952:       child: Row(
+2953:         children: [
+2954:           SizedBox(
+2955:             width: 342,
+2956:             child: Padding(
+2957:               padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+2958:               child: _FlexiblePlantPanel(
+2959:                 controller: widget.controller,
+2960:                 selectedBed: bed,
+2961:                 activePlantName: activePlantName,
+2962:                 settings: settings,
+2963:                 onPlantChosen: _startPlantPlacement,
+2964:                 onClearPlant: _clearPlantPlacement,
+2965:                 onSettingsChanged: (next) {
+2966:                   setState(() {
+2967:                     settings = next;
+2968:                   });
+2969:                 },
+2970:                 onUseRecommendedSpacing: _useRecommendedSpacing,
+2971:               ),
+2972:             ),
+2973:           ),
+2974:           Expanded(
+2975:             child: Padding(
+2976:               padding: const EdgeInsets.fromLTRB(8, 12, 12, 12),
+2977:               child: bed == null
+2978:                   ? const _FlexibleBedEmptyState()
+2979:                   : _FlexibleBedWorkspace(
+2980:                       marker: buildMarker,
+2981:                       bed: bed,
+2982:                       beds: widget.beds,
+2983:                       controller: widget.controller,
+2984:                       activePlantName: activePlantName,
+2985:                       settings: settings,
+2986:                       onSelectBed: _selectBed,
+2987:                       onOpenDetails: () => widget.onOpenBedDetails(bed),
+2988:                       onClearPlant: _clearPlantPlacement,
+2989:                       onPlantPlaced: _clearPlantPlacement,
+2990:                     ),
+2991:             ),
+2992:           ),
+2993:         ],
+2994:       ),
+2995:     );
+2996:   }
+2997: 
+2998:   void _selectBed(Bed bed) {
+2999:     widget.controller.selectBed(bed.id);
+3000: 
+3001:     setState(() {
+3002:       selectedBedId = bed.id;
+3003:       activePlantName = null;
+3004:     });
+3005:   }
+3006: 
+3007:   void _startPlantPlacement(String cropName) {
+3008:     final bed = selectedBed;
+3009: 
+3010:     if (bed == null) {
+3011:       ScaffoldMessenger.of(context).showSnackBar(
+3012:         const SnackBar(content: Text('Add a bed before placing plants.')),
+3013:       );
+3014:       return;
+3015:     }
+3016: 
+3017:     widget.controller.selectBed(bed.id);
+3018: 
+3019:     setState(() {
+3020:       activePlantName = cropName;
+3021:     });
+3022: 
+3023:     ScaffoldMessenger.of(context).showSnackBar(
+3024:       SnackBar(content: Text('Placing $cropName in ${bed.name}.')),
+3025:     );
+3026:   }
+3027: 
+3028:   void _clearPlantPlacement() {
+3029:     setState(() {
+3030:       activePlantName = null;
+3031:     });
+3032:   }
+3033: 
+3034:   void _useRecommendedSpacing() {
+3035:     final plant = activePlantName;
+3036:     if (plant == null || plant.trim().isEmpty) return;
+3037: 
+3038:     final spacing = realisticSpacingMetersForCrop(plant);
+3039: 
+3040:     setState(() {
+3041:       settings = settings.copyWith(
+3042:         spacingMeters: spacing,
+3043:         rowWidthMeters: math.max(0.08, math.min(spacing, 0.45)),
+3044:         blockSizeMeters: math.max(0.10, math.min(spacing, 0.60)),
+3045:       );
+3046:     });
+3047:   }
+3048: }
+3049: 
+
+============================================================
+CLASS: _FlexiblePlantPanel
+============================================================
+LINES 3050-3145
+
+3050: class _FlexiblePlantPanel extends StatelessWidget {
+3051:   const _FlexiblePlantPanel({
+3052:     required this.controller,
+3053:     required this.selectedBed,
+3054:     required this.activePlantName,
+3055:     required this.settings,
+3056:     required this.onPlantChosen,
+3057:     required this.onClearPlant,
+3058:     required this.onSettingsChanged,
+3059:     required this.onUseRecommendedSpacing,
+3060:   });
+3061: 
+3062:   final GardenController controller;
+3063:   final Bed? selectedBed;
+3064:   final String? activePlantName;
+3065:   final _PathPlacementSettings settings;
+3066:   final ValueChanged<String> onPlantChosen;
+3067:   final VoidCallback onClearPlant;
+3068:   final ValueChanged<_PathPlacementSettings> onSettingsChanged;
+3069:   final VoidCallback onUseRecommendedSpacing;
+3070: 
+3071:   @override
+3072:   Widget build(BuildContext context) {
+3073:     final plant = activePlantName;
+3074:     final spacingLabel = plant == null
+3075:         ? '${(settings.spacingMeters * 100).round()}cm spacing'
+3076:         : realisticSpacingLabelForCrop(plant);
+3077: 
+3078:     return Container(
+3079:       clipBehavior: Clip.antiAlias,
+3080:       decoration: BoxDecoration(
+3081:         color: GardenTheme.panel,
+3082:         borderRadius: BorderRadius.circular(18),
+3083:         border: Border.all(color: GardenTheme.border),
+3084:         boxShadow: const [
+3085:           BoxShadow(
+3086:             color: Color(0x12000000),
+3087:             blurRadius: 18,
+3088:             offset: Offset(0, 8),
+3089:           ),
+3090:         ],
+3091:       ),
+3092:       child: Column(
+3093:         children: [
+3094:           Container(
+3095:             padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+3096:             decoration: const BoxDecoration(
+3097:               color: Color(0xFFFFFBF5),
+3098:               border: Border(bottom: BorderSide(color: GardenTheme.border)),
+3099:             ),
+3100:             child: Row(
+3101:               children: [
+3102:                 const Icon(Icons.timeline, color: GardenTheme.good, size: 18),
+3103:                 const SizedBox(width: 8),
+3104:                 const Expanded(
+3105:                   child: Text(
+3106:                     'Flexible row planner',
+3107:                     style: TextStyle(
+3108:                       color: GardenTheme.ink,
+3109:                       fontSize: 15,
+3110:                       fontWeight: FontWeight.w900,
+3111:                     ),
+3112:                   ),
+3113:                 ),
+3114:                 if (activePlantName != null)
+3115:                   IconButton(
+3116:                     tooltip: 'Clear active plant',
+3117:                     onPressed: onClearPlant,
+3118:                     icon: const Icon(Icons.close),
+3119:                     color: GardenTheme.muted,
+3120:                     visualDensity: VisualDensity.compact,
+3121:                   ),
+3122:               ],
+3123:             ),
+3124:           ),
+3125:           _FlexibleRowControls(
+3126:             activePlantName: activePlantName,
+3127:             selectedBed: selectedBed,
+3128:             settings: settings,
+3129:             spacingLabel: spacingLabel,
+3130:             onChanged: onSettingsChanged,
+3131:             onUseRecommendedSpacing: onUseRecommendedSpacing,
+3132:           ),
+3133:           Expanded(
+3134:             child: PlantPickerPanel(
+3135:               key: const ValueKey('garden-screen-flexible-row-plant-picker'),
+3136:               controller: controller,
+3137:               onPlantChosen: onPlantChosen,
+3138:             ),
+3139:           ),
+3140:         ],
+3141:       ),
+3142:     );
+3143:   }
+3144: }
+3145: 
+
+============================================================
+CLASS: _FlexibleRowControls
+============================================================
+LINES 3146-3347
+
+3146: class _FlexibleRowControls extends StatelessWidget {
+3147:   const _FlexibleRowControls({
+3148:     required this.activePlantName,
+3149:     required this.selectedBed,
+3150:     required this.settings,
+3151:     required this.spacingLabel,
+3152:     required this.onChanged,
+3153:     required this.onUseRecommendedSpacing,
+3154:   });
+3155: 
+3156:   final String? activePlantName;
+3157:   final Bed? selectedBed;
+3158:   final _PathPlacementSettings settings;
+3159:   final String spacingLabel;
+3160:   final ValueChanged<_PathPlacementSettings> onChanged;
+3161:   final VoidCallback onUseRecommendedSpacing;
+3162: 
+3163:   @override
+3164:   Widget build(BuildContext context) {
+3165:     final bed = selectedBed;
+3166:     final plant = activePlantName;
+3167: 
+3168:     final previewLength = bed == null
+3169:         ? 2.0
+3170:         : math.max(1.0, math.min(bed.width, bed.height) * 0.75);
+3171: 
+3172:     final previewCount = math.max(
+3173:       1,
+3174:       (previewLength / settings.spacingMeters).floor() + 1,
+3175:     );
+3176: 
+3177:     return Container(
+3178:       margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+3179:       padding: const EdgeInsets.all(12),
+3180:       decoration: BoxDecoration(
+3181:         color: const Color(0xFFFFFBF5),
+3182:         borderRadius: BorderRadius.circular(14),
+3183:         border: Border.all(color: GardenTheme.border),
+3184:       ),
+3185:       child: Column(
+3186:         crossAxisAlignment: CrossAxisAlignment.start,
+3187:         children: [
+3188:           const Text(
+3189:             'Row shape',
+3190:             style: TextStyle(
+3191:               color: GardenTheme.ink,
+3192:               fontSize: 13,
+3193:               fontWeight: FontWeight.w900,
+3194:             ),
+3195:           ),
+3196:           const SizedBox(height: 9),
+3197:           Wrap(
+3198:             spacing: 7,
+3199:             runSpacing: 7,
+3200:             children: [
+3201:               _ToolChip(
+3202:                 label: 'Straight',
+3203:                 icon: Icons.linear_scale,
+3204:                 selected: settings.tool == _PlacementTool.straight,
+3205:                 onTap: () {
+3206:                   onChanged(settings.copyWith(tool: _PlacementTool.straight));
+3207:                 },
+3208:               ),
+3209:               _ToolChip(
+3210:                 label: 'Freehand',
+3211:                 icon: Icons.gesture,
+3212:                 selected: settings.tool == _PlacementTool.freehand,
+3213:                 onTap: () {
+3214:                   onChanged(settings.copyWith(tool: _PlacementTool.freehand));
+3215:                 },
+3216:               ),
+3217:               _ToolChip(
+3218:                 label: 'Wave',
+3219:                 icon: Icons.water,
+3220:                 selected: settings.tool == _PlacementTool.wave,
+3221:                 onTap: () {
+3222:                   onChanged(settings.copyWith(tool: _PlacementTool.wave));
+3223:                 },
+3224:               ),
+3225:               _ToolChip(
+3226:                 label: 'Block',
+3227:                 icon: Icons.crop_square,
+3228:                 selected: settings.tool == _PlacementTool.block,
+3229:                 onTap: () {
+3230:                   onChanged(settings.copyWith(tool: _PlacementTool.block));
+3231:                 },
+3232:               ),
+3233:             ],
+3234:           ),
+3235:           const SizedBox(height: 10),
+3236:           _NumberStepper(
+3237:             label: 'Plant spacing',
+3238:             value: settings.spacingMeters,
+3239:             suffix: 'm',
+3240:             min: 0.03,
+3241:             max: 2.0,
+3242:             step: 0.01,
+3243:             decimals: 2,
+3244:             onChanged: (value) {
+3245:               onChanged(settings.copyWith(spacingMeters: value));
+3246:             },
+3247:           ),
+3248:           const SizedBox(height: 7),
+3249:           if (settings.tool == _PlacementTool.block)
+3250:             _NumberStepper(
+3251:               label: 'Plant size',
+3252:               value: settings.blockSizeMeters,
+3253:               suffix: 'm',
+3254:               min: 0.05,
+3255:               max: 2.0,
+3256:               step: 0.05,
+3257:               decimals: 2,
+3258:               onChanged: (value) {
+3259:                 onChanged(settings.copyWith(blockSizeMeters: value));
+3260:               },
+3261:             )
+3262:           else
+3263:             _NumberStepper(
+3264:               label: 'Row width',
+3265:               value: settings.rowWidthMeters,
+3266:               suffix: 'm',
+3267:               min: 0.04,
+3268:               max: 1.5,
+3269:               step: 0.02,
+3270:               decimals: 2,
+3271:               onChanged: (value) {
+3272:                 onChanged(settings.copyWith(rowWidthMeters: value));
+3273:               },
+3274:             ),
+3275:           if (settings.tool == _PlacementTool.wave) ...[
+3276:             const SizedBox(height: 7),
+3277:             _NumberStepper(
+3278:               label: 'Wave height',
+3279:               value: settings.waveAmplitudeMeters,
+3280:               suffix: 'm',
+3281:               min: 0.0,
+3282:               max: 2.0,
+3283:               step: 0.05,
+3284:               decimals: 2,
+3285:               onChanged: (value) {
+3286:                 onChanged(settings.copyWith(waveAmplitudeMeters: value));
+3287:               },
+3288:             ),
+3289:             const SizedBox(height: 7),
+3290:             _NumberStepper(
+3291:               label: 'Wave count',
+3292:               value: settings.waveFrequency.toDouble(),
+3293:               suffix: 'x',
+3294:               min: 1,
+3295:               max: 12,
+3296:               step: 1,
+3297:               decimals: 0,
+3298:               onChanged: (value) {
+3299:                 onChanged(settings.copyWith(waveFrequency: value.round()));
+3300:               },
+3301:             ),
+3302:           ],
+3303:           const SizedBox(height: 10),
+3304:           Row(
+3305:             children: [
+3306:               Expanded(
+3307:                 child: OutlinedButton.icon(
+3308:                   onPressed: plant == null ? null : onUseRecommendedSpacing,
+3309:                   icon: const Icon(Icons.auto_awesome, size: 15),
+3310:                   label: Text('Use crop spacing: $spacingLabel'),
+3311:                 ),
+3312:               ),
+3313:             ],
+3314:           ),
+3315:           const SizedBox(height: 8),
+3316:           Text(
+3317:             plant == null
+3318:                 ? 'Choose a crop. Then drag inside the bed.'
+3319:                 : settings.tool == _PlacementTool.freehand
+3320:                 ? 'Drag a freehand path. Plant count follows row length and spacing.'
+3321:                 : settings.tool == _PlacementTool.wave
+3322:                 ? 'Drag start to end. A wave row is generated between the points.'
+3323:                 : settings.tool == _PlacementTool.block
+3324:                 ? 'Tap or drag to place individual plants by spacing.'
+3325:                 : 'Drag start to end. Plant count increases with row length.',
+3326:             style: const TextStyle(
+3327:               color: GardenTheme.muted,
+3328:               fontSize: 11,
+3329:               fontWeight: FontWeight.w700,
+3330:               height: 1.3,
+3331:             ),
+3332:           ),
+3333:           const SizedBox(height: 6),
+3334:           Text(
+3335:             'Preview: about $previewCount plants over ${previewLength.toStringAsFixed(1)}m.',
+3336:             style: const TextStyle(
+3337:               color: GardenTheme.good,
+3338:               fontSize: 11,
+3339:               fontWeight: FontWeight.w900,
+3340:             ),
+3341:           ),
+3342:         ],
+3343:       ),
+3344:     );
+3345:   }
+3346: }
+3347: 
+
+============================================================
+CLASS: _ToolChip
+============================================================
+LINES 3348-3402
+
+3348: class _ToolChip extends StatelessWidget {
+3349:   const _ToolChip({
+3350:     required this.label,
+3351:     required this.icon,
+3352:     required this.selected,
+3353:     required this.onTap,
+3354:   });
+3355: 
+3356:   final String label;
+3357:   final IconData icon;
+3358:   final bool selected;
+3359:   final VoidCallback onTap;
+3360: 
+3361:   @override
+3362:   Widget build(BuildContext context) {
+3363:     return Material(
+3364:       color: selected ? GardenTheme.ink : Colors.white,
+3365:       borderRadius: BorderRadius.circular(999),
+3366:       child: InkWell(
+3367:         onTap: onTap,
+3368:         borderRadius: BorderRadius.circular(999),
+3369:         child: Container(
+3370:           height: 32,
+3371:           padding: const EdgeInsets.symmetric(horizontal: 10),
+3372:           decoration: BoxDecoration(
+3373:             borderRadius: BorderRadius.circular(999),
+3374:             border: Border.all(
+3375:               color: selected ? GardenTheme.ink : GardenTheme.border,
+3376:             ),
+3377:           ),
+3378:           child: Row(
+3379:             mainAxisSize: MainAxisSize.min,
+3380:             children: [
+3381:               Icon(
+3382:                 icon,
+3383:                 size: 14,
+3384:                 color: selected ? GardenTheme.cream : GardenTheme.muted,
+3385:               ),
+3386:               const SizedBox(width: 5),
+3387:               Text(
+3388:                 label,
+3389:                 style: TextStyle(
+3390:                   color: selected ? GardenTheme.cream : GardenTheme.ink,
+3391:                   fontSize: 11,
+3392:                   fontWeight: FontWeight.w900,
+3393:                 ),
+3394:               ),
+3395:             ],
+3396:           ),
+3397:         ),
+3398:       ),
+3399:     );
+3400:   }
+3401: }
+3402: 
+
+============================================================
+CLASS: _NumberStepper
+============================================================
+LINES 3403-3470
+
+3403: class _NumberStepper extends StatelessWidget {
+3404:   const _NumberStepper({
+3405:     required this.label,
+3406:     required this.value,
+3407:     required this.suffix,
+3408:     required this.min,
+3409:     required this.max,
+3410:     required this.step,
+3411:     required this.decimals,
+3412:     required this.onChanged,
+3413:   });
+3414: 
+3415:   final String label;
+3416:   final double value;
+3417:   final String suffix;
+3418:   final double min;
+3419:   final double max;
+3420:   final double step;
+3421:   final int decimals;
+3422:   final ValueChanged<double> onChanged;
+3423: 
+3424:   @override
+3425:   Widget build(BuildContext context) {
+3426:     final shown = decimals == 0
+3427:         ? value.round().toString()
+3428:         : value.toStringAsFixed(decimals);
+3429: 
+3430:     return Row(
+3431:       children: [
+3432:         Expanded(
+3433:           child: Text(
+3434:             label,
+3435:             style: const TextStyle(
+3436:               color: GardenTheme.ink,
+3437:               fontSize: 12,
+3438:               fontWeight: FontWeight.w800,
+3439:             ),
+3440:           ),
+3441:         ),
+3442:         _SmallRoundButton(
+3443:           icon: Icons.remove,
+3444:           onTap: () {
+3445:             onChanged((value - step).clamp(min, max).toDouble());
+3446:           },
+3447:         ),
+3448:         Container(
+3449:           width: 78,
+3450:           alignment: Alignment.center,
+3451:           child: Text(
+3452:             '$shown $suffix',
+3453:             style: const TextStyle(
+3454:               color: GardenTheme.ink,
+3455:               fontSize: 12,
+3456:               fontWeight: FontWeight.w900,
+3457:             ),
+3458:           ),
+3459:         ),
+3460:         _SmallRoundButton(
+3461:           icon: Icons.add,
+3462:           onTap: () {
+3463:             onChanged((value + step).clamp(min, max).toDouble());
+3464:           },
+3465:         ),
+3466:       ],
+3467:     );
+3468:   }
+3469: }
+3470: 
+
+============================================================
+CLASS: _SmallRoundButton
+============================================================
+LINES 3471-3494
+
+3471: class _SmallRoundButton extends StatelessWidget {
+3472:   const _SmallRoundButton({required this.icon, required this.onTap});
+3473: 
+3474:   final IconData icon;
+3475:   final VoidCallback onTap;
+3476: 
+3477:   @override
+3478:   Widget build(BuildContext context) {
+3479:     return Material(
+3480:       color: GardenTheme.paper,
+3481:       shape: const CircleBorder(),
+3482:       child: InkWell(
+3483:         customBorder: const CircleBorder(),
+3484:         onTap: onTap,
+3485:         child: SizedBox(
+3486:           width: 28,
+3487:           height: 28,
+3488:           child: Icon(icon, size: 15, color: GardenTheme.ink),
+3489:         ),
+3490:       ),
+3491:     );
+3492:   }
+3493: }
+3494: 
+
+============================================================
+CLASS: _FlexibleBedWorkspace
+============================================================
+LINES 3495-3569
+
+3495: class _FlexibleBedWorkspace extends StatelessWidget {
+3496:   const _FlexibleBedWorkspace({
+3497:     required this.marker,
+3498:     required this.bed,
+3499:     required this.beds,
+3500:     required this.controller,
+3501:     required this.activePlantName,
+3502:     required this.settings,
+3503:     required this.onSelectBed,
+3504:     required this.onOpenDetails,
+3505:     required this.onClearPlant,
+3506:     required this.onPlantPlaced,
+3507:   });
+3508: 
+3509:   final String marker;
+3510:   final Bed bed;
+3511:   final List<Bed> beds;
+3512:   final GardenController controller;
+3513:   final String? activePlantName;
+3514:   final _PathPlacementSettings settings;
+3515:   final ValueChanged<Bed> onSelectBed;
+3516:   final VoidCallback onOpenDetails;
+3517:   final VoidCallback onClearPlant;
+3518:   final VoidCallback onPlantPlaced;
+3519: 
+3520:   @override
+3521:   Widget build(BuildContext context) {
+3522:     final ppm = _pixelsPerMeterForBed(bed);
+3523: 
+3524:     return Column(
+3525:       children: [
+3526:         _FlexibleBedHeader(
+3527:           marker: marker,
+3528:           bed: bed,
+3529:           activePlantName: activePlantName,
+3530:           settings: settings,
+3531:           onOpenDetails: onOpenDetails,
+3532:           onClearPlant: onClearPlant,
+3533:         ),
+3534:         const SizedBox(height: 10),
+3535:         _FlexibleBedSwitchBar(
+3536:           beds: beds,
+3537:           selectedBedId: bed.id,
+3538:           onSelectBed: onSelectBed,
+3539:         ),
+3540:         const SizedBox(height: 10),
+3541:         Expanded(
+3542:           child: _FlexibleBedCanvas(
+3543:             key: ValueKey(
+3544:               'flex-bed-${bed.id}-${activePlantName ?? "none"}-${settings.tool.name}-${settings.spacingMeters}',
+3545:             ),
+3546:             bed: bed,
+3547:             controller: controller,
+3548:             pixelsPerMeter: ppm,
+3549:             activePlantName: activePlantName,
+3550:             settings: settings,
+3551:             onPlantPlaced: onPlantPlaced,
+3552:           ),
+3553:         ),
+3554:       ],
+3555:     );
+3556:   }
+3557: 
+3558:   static double _pixelsPerMeterForBed(Bed bed) {
+3559:     final longest = math.max(bed.width, bed.height);
+3560: 
+3561:     if (longest <= 2.5) return 150;
+3562:     if (longest <= 4.0) return 120;
+3563:     if (longest <= 6.0) return 94;
+3564:     if (longest <= 8.5) return 74;
+3565: 
+3566:     return 62;
+3567:   }
+3568: }
+3569: 
+
+============================================================
+CLASS: _FlexibleBedHeader
+============================================================
+LINES 3570-3714
+
+3570: class _FlexibleBedHeader extends StatelessWidget {
+3571:   const _FlexibleBedHeader({
+3572:     required this.marker,
+3573:     required this.bed,
+3574:     required this.activePlantName,
+3575:     required this.settings,
+3576:     required this.onOpenDetails,
+3577:     required this.onClearPlant,
+3578:   });
+3579: 
+3580:   final String marker;
+3581:   final Bed bed;
+3582:   final String? activePlantName;
+3583:   final _PathPlacementSettings settings;
+3584:   final VoidCallback onOpenDetails;
+3585:   final VoidCallback onClearPlant;
+3586: 
+3587:   @override
+3588:   Widget build(BuildContext context) {
+3589:     final area = bed.width * bed.height;
+3590:     final modeText = switch (settings.tool) {
+3591:       _PlacementTool.straight => 'Straight rows',
+3592:       _PlacementTool.freehand => 'Freehand path',
+3593:       _PlacementTool.wave => 'Wave row',
+3594:       _PlacementTool.block => 'Individual plants',
+3595:     };
+3596: 
+3597:     return Tooltip(
+3598:       message: marker,
+3599:       child: Container(
+3600:         padding: const EdgeInsets.all(13),
+3601:         decoration: BoxDecoration(
+3602:           color: Colors.white.withValues(alpha: 0.96),
+3603:           borderRadius: BorderRadius.circular(20),
+3604:           border: Border.all(color: GardenTheme.border),
+3605:           boxShadow: const [
+3606:             BoxShadow(
+3607:               color: Color(0x14000000),
+3608:               blurRadius: 18,
+3609:               offset: Offset(0, 7),
+3610:             ),
+3611:           ],
+3612:         ),
+3613:         child: Row(
+3614:           children: [
+3615:             Container(
+3616:               width: 42,
+3617:               height: 42,
+3618:               alignment: Alignment.center,
+3619:               decoration: BoxDecoration(
+3620:                 color: GardenTheme.good,
+3621:                 borderRadius: BorderRadius.circular(14),
+3622:               ),
+3623:               child: Text(
+3624:                 bed.number.toString(),
+3625:                 style: const TextStyle(
+3626:                   color: Colors.white,
+3627:                   fontSize: 15,
+3628:                   fontWeight: FontWeight.w900,
+3629:                 ),
+3630:               ),
+3631:             ),
+3632:             const SizedBox(width: 12),
+3633:             Expanded(
+3634:               child: Column(
+3635:                 crossAxisAlignment: CrossAxisAlignment.start,
+3636:                 children: [
+3637:                   Text(
+3638:                     bed.name,
+3639:                     maxLines: 1,
+3640:                     overflow: TextOverflow.ellipsis,
+3641:                     style: const TextStyle(
+3642:                       color: GardenTheme.ink,
+3643:                       fontSize: 18,
+3644:                       fontWeight: FontWeight.w900,
+3645:                     ),
+3646:                   ),
+3647:                   const SizedBox(height: 3),
+3648:                   Text(
+3649:                     '${bed.width.toStringAsFixed(1)}m x ${bed.height.toStringAsFixed(1)}m - ${area.toStringAsFixed(1)} m2 - ${bed.cropBlocks.length} crop blocks',
+3650:                     maxLines: 1,
+3651:                     overflow: TextOverflow.ellipsis,
+3652:                     style: const TextStyle(
+3653:                       color: GardenTheme.muted,
+3654:                       fontSize: 12,
+3655:                       fontWeight: FontWeight.w800,
+3656:                     ),
+3657:                   ),
+3658:                   const SizedBox(height: 3),
+3659:                   Text(
+3660:                     '$modeText - ${(settings.spacingMeters * 100).round()}cm spacing - $marker',
+3661:                     maxLines: 1,
+3662:                     overflow: TextOverflow.ellipsis,
+3663:                     style: const TextStyle(
+3664:                       color: GardenTheme.muted,
+3665:                       fontSize: 10,
+3666:                       fontWeight: FontWeight.w800,
+3667:                     ),
+3668:                   ),
+3669:                 ],
+3670:               ),
+3671:             ),
+3672:             if (activePlantName != null) ...[
+3673:               Container(
+3674:                 height: 34,
+3675:                 padding: const EdgeInsets.only(left: 11, right: 3),
+3676:                 decoration: BoxDecoration(
+3677:                   color: const Color(0xFFEAF6EE),
+3678:                   borderRadius: BorderRadius.circular(999),
+3679:                   border: Border.all(color: const Color(0xFFB8DDC8)),
+3680:                 ),
+3681:                 child: Row(
+3682:                   mainAxisSize: MainAxisSize.min,
+3683:                   children: [
+3684:                     Text(
+3685:                       'Placing $activePlantName',
+3686:                       style: const TextStyle(
+3687:                         color: GardenTheme.good,
+3688:                         fontSize: 12,
+3689:                         fontWeight: FontWeight.w900,
+3690:                       ),
+3691:                     ),
+3692:                     IconButton(
+3693:                       onPressed: onClearPlant,
+3694:                       icon: const Icon(Icons.close, size: 16),
+3695:                       color: GardenTheme.good,
+3696:                       visualDensity: VisualDensity.compact,
+3697:                     ),
+3698:                   ],
+3699:                 ),
+3700:               ),
+3701:               const SizedBox(width: 8),
+3702:             ],
+3703:             OutlinedButton.icon(
+3704:               onPressed: onOpenDetails,
+3705:               icon: const Icon(Icons.open_in_new, size: 16),
+3706:               label: const Text('Details'),
+3707:             ),
+3708:           ],
+3709:         ),
+3710:       ),
+3711:     );
+3712:   }
+3713: }
+3714: 
+
+============================================================
+CLASS: _FlexibleBedSwitchBar
+============================================================
+LINES 3715-3815
+
+3715: class _FlexibleBedSwitchBar extends StatelessWidget {
+3716:   const _FlexibleBedSwitchBar({
+3717:     required this.beds,
+3718:     required this.selectedBedId,
+3719:     required this.onSelectBed,
+3720:   });
+3721: 
+3722:   final List<Bed> beds;
+3723:   final String selectedBedId;
+3724:   final ValueChanged<Bed> onSelectBed;
+3725: 
+3726:   @override
+3727:   Widget build(BuildContext context) {
+3728:     return SizedBox(
+3729:       height: 58,
+3730:       child: ListView.separated(
+3731:         scrollDirection: Axis.horizontal,
+3732:         itemCount: beds.length,
+3733:         separatorBuilder: (context, index) => const SizedBox(width: 8),
+3734:         itemBuilder: (context, index) {
+3735:           final bed = beds[index];
+3736:           final selected = bed.id == selectedBedId;
+3737:           final area = bed.width * bed.height;
+3738: 
+3739:           return InkWell(
+3740:             borderRadius: BorderRadius.circular(999),
+3741:             onTap: () => onSelectBed(bed),
+3742:             child: AnimatedContainer(
+3743:               duration: const Duration(milliseconds: 140),
+3744:               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+3745:               decoration: BoxDecoration(
+3746:                 color: selected ? GardenTheme.ink : Colors.white,
+3747:                 borderRadius: BorderRadius.circular(999),
+3748:                 border: Border.all(
+3749:                   color: selected ? GardenTheme.ink : GardenTheme.border,
+3750:                 ),
+3751:               ),
+3752:               child: Row(
+3753:                 mainAxisSize: MainAxisSize.min,
+3754:                 children: [
+3755:                   Container(
+3756:                     width: 28,
+3757:                     height: 28,
+3758:                     alignment: Alignment.center,
+3759:                     decoration: BoxDecoration(
+3760:                       color: selected
+3761:                           ? GardenTheme.good
+3762:                           : const Color(0xFFEAF6EE),
+3763:                       borderRadius: BorderRadius.circular(10),
+3764:                     ),
+3765:                     child: Text(
+3766:                       bed.number.toString(),
+3767:                       style: TextStyle(
+3768:                         color: selected ? Colors.white : GardenTheme.good,
+3769:                         fontSize: 12,
+3770:                         fontWeight: FontWeight.w900,
+3771:                       ),
+3772:                     ),
+3773:                   ),
+3774:                   const SizedBox(width: 8),
+3775:                   ConstrainedBox(
+3776:                     constraints: const BoxConstraints(maxWidth: 190),
+3777:                     child: Column(
+3778:                       crossAxisAlignment: CrossAxisAlignment.start,
+3779:                       children: [
+3780:                         Text(
+3781:                           bed.name,
+3782:                           maxLines: 1,
+3783:                           overflow: TextOverflow.ellipsis,
+3784:                           style: TextStyle(
+3785:                             color: selected ? Colors.white : GardenTheme.ink,
+3786:                             fontSize: 12,
+3787:                             fontWeight: FontWeight.w900,
+3788:                           ),
+3789:                         ),
+3790:                         const SizedBox(height: 2),
+3791:                         Text(
+3792:                           '${area.toStringAsFixed(1)} m2 - ${bed.cropBlocks.length} blocks',
+3793:                           maxLines: 1,
+3794:                           overflow: TextOverflow.ellipsis,
+3795:                           style: TextStyle(
+3796:                             color: selected
+3797:                                 ? Colors.white.withValues(alpha: 0.70)
+3798:                                 : GardenTheme.muted,
+3799:                             fontSize: 10,
+3800:                             fontWeight: FontWeight.w700,
+3801:                           ),
+3802:                         ),
+3803:                       ],
+3804:                     ),
+3805:                   ),
+3806:                 ],
+3807:               ),
+3808:             ),
+3809:           );
+3810:         },
+3811:       ),
+3812:     );
+3813:   }
+3814: }
+3815: 
+
+============================================================
+CLASS: _FlexibleBedCanvas
+============================================================
+LINES 3816-4336
+
+3816: class _FlexibleBedCanvas extends StatefulWidget {
+3817:   const _FlexibleBedCanvas({
+3818:     super.key,
+3819:     required this.bed,
+3820:     required this.controller,
+3821:     required this.pixelsPerMeter,
+3822:     required this.activePlantName,
+3823:     required this.settings,
+3824:     required this.onPlantPlaced,
+3825:   });
+3826: 
+3827:   final Bed bed;
+3828:   final GardenController controller;
+3829:   final double pixelsPerMeter;
+3830:   final String? activePlantName;
+3831:   final _PathPlacementSettings settings;
+3832:   final VoidCallback onPlantPlaced;
+3833: 
+3834:   @override
+3835:   State<_FlexibleBedCanvas> createState() => _FlexibleBedCanvasState();
+3836: }
+3837: 
+3838: class _FlexibleBedCanvasState extends State<_FlexibleBedCanvas> {
+3839:   static const int maxPlantsPerGesture = 80;
+3840: 
+3841:   final List<Offset> dragPoints = [];
+3842:   final List<Offset> draftControlPoints = [];
+3843: 
+3844:   int? editingHandleIndex;
+3845: 
+3846:   bool get planting => widget.activePlantName != null;
+3847: 
+3848:   bool get hasDraft {
+3849:     if (widget.settings.tool == _PlacementTool.block) {
+3850:       return draftControlPoints.isNotEmpty;
+3851:     }
+3852: 
+3853:     return draftControlPoints.length >= 2;
+3854:   }
+3855: 
+3856:   @override
+3857:   void didUpdateWidget(covariant _FlexibleBedCanvas oldWidget) {
+3858:     super.didUpdateWidget(oldWidget);
+3859: 
+3860:     if (!planting ||
+3861:         oldWidget.activePlantName != widget.activePlantName ||
+3862:         oldWidget.settings.tool != widget.settings.tool) {
+3863:       dragPoints.clear();
+3864:       draftControlPoints.clear();
+3865:       editingHandleIndex = null;
+3866:     }
+3867:   }
+3868: 
+3869:   @override
+3870:   Widget build(BuildContext context) {
+3871:     final bedWidthPx = widget.bed.width * widget.pixelsPerMeter;
+3872:     final bedHeightPx = widget.bed.height * widget.pixelsPerMeter;
+3873:     final controlPoints = _activeControlPoints();
+3874:     final previewPath = _pathFromControlPoints(controlPoints);
+3875:     final previewPlantPoints = _previewPlantPoints(previewPath);
+3876:     final previewLength = _pathLengthMeters(previewPath);
+3877: 
+3878:     return Container(
+3879:       decoration: BoxDecoration(
+3880:         color: const Color(0xFFF7EFE3),
+3881:         borderRadius: BorderRadius.circular(22),
+3882:         border: Border.all(color: GardenTheme.border),
+3883:       ),
+3884:       clipBehavior: Clip.antiAlias,
+3885:       child: Stack(
+3886:         children: [
+3887:           Positioned.fill(
+3888:             child: CustomPaint(painter: const _FlexibleBackdropPainter()),
+3889:           ),
+3890:           Center(
+3891:             child: SingleChildScrollView(
+3892:               scrollDirection: Axis.horizontal,
+3893:               child: SingleChildScrollView(
+3894:                 child: Container(
+3895:                   width: bedWidthPx,
+3896:                   height: bedHeightPx,
+3897:                   margin: const EdgeInsets.all(30),
+3898:                   padding: const EdgeInsets.all(12),
+3899:                   decoration: BoxDecoration(
+3900:                     borderRadius: BorderRadius.circular(26),
+3901:                     gradient: const LinearGradient(
+3902:                       begin: Alignment.topLeft,
+3903:                       end: Alignment.bottomRight,
+3904:                       colors: [
+3905:                         Color(0xFFB77A43),
+3906:                         Color(0xFF8C5629),
+3907:                         Color(0xFF6E3F1F),
+3908:                       ],
+3909:                     ),
+3910:                     boxShadow: const [
+3911:                       BoxShadow(
+3912:                         color: Color(0x26000000),
+3913:                         blurRadius: 24,
+3914:                         offset: Offset(0, 12),
+3915:                       ),
+3916:                     ],
+3917:                   ),
+3918:                   child: GestureDetector(
+3919:                     behavior: HitTestBehavior.opaque,
+3920:                     onTapDown: planting ? _tapInsideBed : null,
+3921:                     onPanStart: planting ? _startDrag : null,
+3922:                     onPanUpdate: planting ? _updateDrag : null,
+3923:                     onPanEnd: planting ? _finishDrag : null,
+3924:                     onPanCancel: planting ? _cancelDrag : null,
+3925:                     child: ClipRRect(
+3926:                       borderRadius: BorderRadius.circular(18),
+3927:                       child: Container(
+3928:                         decoration: const BoxDecoration(
+3929:                           gradient: LinearGradient(
+3930:                             begin: Alignment.topLeft,
+3931:                             end: Alignment.bottomRight,
+3932:                             colors: [
+3933:                               Color(0xFF4C3325),
+3934:                               Color(0xFF60402B),
+3935:                               Color(0xFF3B281F),
+3936:                             ],
+3937:                           ),
+3938:                         ),
+3939:                         child: Stack(
+3940:                           children: [
+3941:                             Positioned.fill(
+3942:                               child: CustomPaint(
+3943:                                 painter: _FlexibleBedGridPainter(
+3944:                                   pixelsPerMeter: widget.pixelsPerMeter,
+3945:                                 ),
+3946:                               ),
+3947:                             ),
+3948:                             Positioned.fill(
+3949:                               child: Stack(
+3950:                                 clipBehavior: Clip.hardEdge,
+3951:                                 children: [
+3952:                                   for (
+3953:                                     var blockIndex = 0;
+3954:                                     blockIndex < widget.bed.cropBlocks.length;
+3955:                                     blockIndex++
+3956:                                   )
+3957:                                     DraggableCropBlock(
+3958:                                       key: ValueKey(
+3959:                                         'crop-block-${widget.bed.id}-${widget.bed.cropBlocks[blockIndex].id}-$blockIndex',
+3960:                                       ),
+3961:                                       bedId: widget.bed.id,
+3962:                                       block: widget.bed.cropBlocks[blockIndex],
+3963:                                       pixelsPerMeter: widget.pixelsPerMeter,
+3964:                                       controller: widget.controller,
+3965:                                     ),
+3966:                                 ],
+3967:                               ),
+3968:                             ),
+3969:                             if (planting && previewPath.isNotEmpty)
+3970:                               Positioned.fill(
+3971:                                 child: IgnorePointer(
+3972:                                   child: CustomPaint(
+3973:                                     painter: _EditableDraftPathPainter(
+3974:                                       pathPoints: previewPath,
+3975:                                       controlPoints: controlPoints,
+3976:                                       plantPoints: previewPlantPoints,
+3977:                                       settings: widget.settings,
+3978:                                       pixelsPerMeter: widget.pixelsPerMeter,
+3979:                                       isSavedDraft: hasDraft,
+3980:                                     ),
+3981:                                   ),
+3982:                                 ),
+3983:                               ),
+3984:                           ],
+3985:                         ),
+3986:                       ),
+3987:                     ),
+3988:                   ),
+3989:                 ),
+3990:               ),
+3991:             ),
+3992:           ),
+3993:           Positioned(
+3994:             left: 14,
+3995:             right: 14,
+3996:             bottom: 14,
+3997:             child: _DraftRowToolbar(
+3998:               activePlantName: widget.activePlantName,
+3999:               settings: widget.settings,
+4000:               hasDraft: hasDraft,
+4001:               previewLengthMeters: previewLength,
+4002:               previewPlantCount: previewPlantPoints.length,
+4003:               onSave: hasDraft ? _saveDraft : null,
+4004:               onClear: hasDraft || dragPoints.isNotEmpty ? _clearDraft : null,
+4005:             ),
+4006:           ),
+4007:         ],
+4008:       ),
+4009:     );
+4010:   }
+4011: 
+4012:   void _tapInsideBed(TapDownDetails details) {
+4013:     if (widget.activePlantName == null) return;
+4014: 
+4015:     final point = _clampLocal(details.localPosition);
+4016: 
+4017:     setState(() {
+4018:       dragPoints.clear();
+4019:       editingHandleIndex = null;
+4020: 
+4021:       if (widget.settings.tool == _PlacementTool.block) {
+4022:         draftControlPoints
+4023:           ..clear()
+4024:           ..add(point);
+4025:       } else {
+4026:         final spacingPx = widget.settings.spacingMeters * widget.pixelsPerMeter;
+4027:         draftControlPoints
+4028:           ..clear()
+4029:           ..add(point)
+4030:           ..add(
+4031:             _clampLocal(
+4032:               Offset(point.dx + math.max(spacingPx * 4, 90), point.dy),
+4033:             ),
+4034:           );
+4035:       }
+4036:     });
+4037:   }
+4038: 
+4039:   void _startDrag(DragStartDetails details) {
+4040:     if (widget.activePlantName == null) return;
+4041: 
+4042:     final point = _clampLocal(details.localPosition);
+4043:     final handleIndex = _nearestDraftHandle(point);
+4044: 
+4045:     setState(() {
+4046:       if (handleIndex != null) {
+4047:         editingHandleIndex = handleIndex;
+4048:         dragPoints.clear();
+4049:         return;
+4050:       }
+4051: 
+4052:       editingHandleIndex = null;
+4053:       dragPoints
+4054:         ..clear()
+4055:         ..add(point);
+4056: 
+4057:       if (widget.settings.tool != _PlacementTool.block) {
+4058:         draftControlPoints.clear();
+4059:       }
+4060:     });
+4061:   }
+4062: 
+4063:   void _updateDrag(DragUpdateDetails details) {
+4064:     if (widget.activePlantName == null) return;
+4065: 
+4066:     final point = _clampLocal(details.localPosition);
+4067: 
+4068:     setState(() {
+4069:       final editing = editingHandleIndex;
+4070: 
+4071:       if (editing != null &&
+4072:           editing >= 0 &&
+4073:           editing < draftControlPoints.length) {
+4074:         draftControlPoints[editing] = point;
+4075:         return;
+4076:       }
+4077: 
+4078:       if (widget.settings.tool == _PlacementTool.freehand) {
+4079:         if (dragPoints.isEmpty || (dragPoints.last - point).distance >= 8) {
+4080:           dragPoints.add(point);
+4081:         }
+4082:       } else {
+4083:         if (dragPoints.isEmpty) {
+4084:           dragPoints.add(point);
+4085:         } else if (dragPoints.length == 1) {
+4086:           dragPoints.add(point);
+4087:         } else {
+4088:           dragPoints[1] = point;
+4089:         }
+4090:       }
+4091:     });
+4092:   }
+4093: 
+4094:   void _finishDrag(DragEndDetails details) {
+4095:     if (widget.activePlantName == null) {
+4096:       _cancelDrag();
+4097:       return;
+4098:     }
+4099: 
+4100:     setState(() {
+4101:       if (editingHandleIndex != null) {
+4102:         editingHandleIndex = null;
+4103:         return;
+4104:       }
+4105: 
+4106:       if (dragPoints.isNotEmpty) {
+4107:         draftControlPoints
+4108:           ..clear()
+4109:           ..addAll(dragPoints);
+4110:       }
+4111: 
+4112:       dragPoints.clear();
+4113:     });
+4114:   }
+4115: 
+4116:   void _cancelDrag() {
+4117:     setState(() {
+4118:       dragPoints.clear();
+4119:       editingHandleIndex = null;
+4120:     });
+4121:   }
+4122: 
+4123:   void _clearDraft() {
+4124:     setState(() {
+4125:       dragPoints.clear();
+4126:       draftControlPoints.clear();
+4127:       editingHandleIndex = null;
+4128:     });
+4129:   }
+4130: 
+4131:   void _saveDraft() {
+4132:     final cropName = widget.activePlantName;
+4133:     if (cropName == null) return;
+4134: 
+4135:     final path = _pathFromControlPoints(draftControlPoints);
+4136:     final plantPoints = _previewPlantPoints(path);
+4137: 
+4138:     if (plantPoints.isEmpty) return;
+4139: 
+4140:     for (final point in plantPoints) {
+4141:       _addExactPlant(cropName: cropName, localPx: point);
+4142:     }
+4143: 
+4144:     final count = plantPoints.length;
+4145: 
+4146:     setState(() {
+4147:       dragPoints.clear();
+4148:       draftControlPoints.clear();
+4149:       editingHandleIndex = null;
+4150:     });
+4151: 
+4152:     widget.onPlantPlaced();
+4153: 
+4154:     ScaffoldMessenger.of(context).showSnackBar(
+4155:       SnackBar(
+4156:         content: Text(
+4157:           '$cropName saved: $count plant${count == 1 ? '' : 's'} in ${widget.bed.name}.',
+4158:         ),
+4159:       ),
+4160:     );
+4161:   }
+4162: 
+4163:   List<Offset> _activeControlPoints() {
+4164:     if (dragPoints.isNotEmpty) return List<Offset>.from(dragPoints);
+4165:     return List<Offset>.from(draftControlPoints);
+4166:   }
+4167: 
+4168:   List<Offset> _pathFromControlPoints(List<Offset> controlPoints) {
+4169:     if (controlPoints.isEmpty) return const [];
+4170: 
+4171:     if (widget.settings.tool == _PlacementTool.block) {
+4172:       return [controlPoints.last];
+4173:     }
+4174: 
+4175:     if (widget.settings.tool == _PlacementTool.freehand) {
+4176:       return List<Offset>.from(controlPoints);
+4177:     }
+4178: 
+4179:     if (controlPoints.length == 1) return List<Offset>.from(controlPoints);
+4180: 
+4181:     final start = controlPoints.first;
+4182:     final end = controlPoints.last;
+4183: 
+4184:     if (widget.settings.tool == _PlacementTool.wave) {
+4185:       return _wavePoints(start, end);
+4186:     }
+4187: 
+4188:     return [start, end];
+4189:   }
+4190: 
+4191:   List<Offset> _wavePoints(Offset start, Offset end) {
+4192:     final points = <Offset>[];
+4193:     final dx = end.dx - start.dx;
+4194:     final dy = end.dy - start.dy;
+4195:     final length = math.max(1.0, math.sqrt(dx * dx + dy * dy));
+4196: 
+4197:     final nx = -dy / length;
+4198:     final ny = dx / length;
+4199:     final amp = widget.settings.waveAmplitudeMeters * widget.pixelsPerMeter;
+4200:     final frequency = widget.settings.waveFrequency;
+4201:     const segments = 72;
+4202: 
+4203:     for (var i = 0; i <= segments; i++) {
+4204:       final t = i / segments;
+4205:       final base = Offset(start.dx + dx * t, start.dy + dy * t);
+4206:       final wave = math.sin(t * math.pi * 2 * frequency) * amp;
+4207: 
+4208:       points.add(Offset(base.dx + nx * wave, base.dy + ny * wave));
+4209:     }
+4210: 
+4211:     return points;
+4212:   }
+4213: 
+4214:   List<Offset> _previewPlantPoints(List<Offset> pathPx) {
+4215:     if (pathPx.isEmpty) return const [];
+4216: 
+4217:     if (widget.settings.tool == _PlacementTool.block || pathPx.length == 1) {
+4218:       return [pathPx.last];
+4219:     }
+4220: 
+4221:     final points = <Offset>[pathPx.first];
+4222:     final spacingPx = math.max(
+4223:       12.0,
+4224:       widget.settings.spacingMeters * widget.pixelsPerMeter,
+4225:     );
+4226: 
+4227:     var nextDistance = spacingPx;
+4228:     var travelled = 0.0;
+4229: 
+4230:     for (var i = 1; i < pathPx.length; i++) {
+4231:       final a = pathPx[i - 1];
+4232:       final b = pathPx[i];
+4233:       final segment = b - a;
+4234:       final segmentLength = segment.distance;
+4235: 
+4236:       if (segmentLength <= 0) continue;
+4237: 
+4238:       while (travelled + segmentLength >= nextDistance &&
+4239:           points.length < maxPlantsPerGesture) {
+4240:         final t = (nextDistance - travelled) / segmentLength;
+4241:         points.add(Offset(a.dx + segment.dx * t, a.dy + segment.dy * t));
+4242:         nextDistance += spacingPx;
+4243:       }
+4244: 
+4245:       if (points.length >= maxPlantsPerGesture) break;
+4246: 
+4247:       travelled += segmentLength;
+4248:     }
+4249: 
+4250:     return points;
+4251:   }
+4252: 
+4253:   double _pathLengthMeters(List<Offset> pathPx) {
+4254:     if (pathPx.length < 2) return 0;
+4255: 
+4256:     var lengthPx = 0.0;
+4257: 
+4258:     for (var i = 1; i < pathPx.length; i++) {
+4259:       lengthPx += (pathPx[i] - pathPx[i - 1]).distance;
+4260:     }
+4261: 
+4262:     return lengthPx / widget.pixelsPerMeter;
+4263:   }
+4264: 
+4265:   Offset _clampLocal(Offset point) {
+4266:     final maxX = math.max(0.0, widget.bed.width * widget.pixelsPerMeter - 1);
+4267:     final maxY = math.max(0.0, widget.bed.height * widget.pixelsPerMeter - 1);
+4268: 
+4269:     return Offset(
+4270:       point.dx.clamp(0.0, maxX).toDouble(),
+4271:       point.dy.clamp(0.0, maxY).toDouble(),
+4272:     );
+4273:   }
+4274: 
+4275:   int? _nearestDraftHandle(Offset point) {
+4276:     if (draftControlPoints.isEmpty) return null;
+4277: 
+4278:     var bestIndex = -1;
+4279:     var bestDistance = double.infinity;
+4280: 
+4281:     for (var i = 0; i < draftControlPoints.length; i++) {
+4282:       final distance = (draftControlPoints[i] - point).distance;
+4283: 
+4284:       if (distance < bestDistance) {
+4285:         bestDistance = distance;
+4286:         bestIndex = i;
+4287:       }
+4288:     }
+4289: 
+4290:     if (bestIndex == -1 || bestDistance > 24) return null;
+4291: 
+4292:     if (widget.settings.tool == _PlacementTool.freehand) {
+4293:       if (bestIndex != 0 && bestIndex != draftControlPoints.length - 1) {
+4294:         final stride = math.max(1, draftControlPoints.length ~/ 8);
+4295:         if (bestIndex % stride != 0) return null;
+4296:       }
+4297:     }
+4298: 
+4299:     return bestIndex;
+4300:   }
+4301: 
+4302:   void _addExactPlant({required String cropName, required Offset localPx}) {
+4303:     final sizeMeters = widget.settings.tool == _PlacementTool.block
+4304:         ? widget.settings.blockSizeMeters
+4305:         : math.min(0.10, math.max(0.05, widget.settings.spacingMeters * 0.24));
+4306: 
+4307:     final centerMeters = Offset(
+4308:       localPx.dx / widget.pixelsPerMeter,
+4309:       localPx.dy / widget.pixelsPerMeter,
+4310:     );
+4311: 
+4312:     final safeSize = sizeMeters
+4313:         .clamp(0.04, math.min(widget.bed.width, widget.bed.height))
+4314:         .toDouble();
+4315: 
+4316:     final half = safeSize / 2;
+4317: 
+4318:     final left = (centerMeters.dx - half)
+4319:         .clamp(0.0, math.max(0.0, widget.bed.width - safeSize))
+4320:         .toDouble();
+4321: 
+4322:     final top = (centerMeters.dy - half)
+4323:         .clamp(0.0, math.max(0.0, widget.bed.height - safeSize))
+4324:         .toDouble();
+4325: 
+4326:     widget.controller.addExactCropBlockToBed(
+4327:       bedId: widget.bed.id,
+4328:       cropName: cropName,
+4329:       x: left,
+4330:       y: top,
+4331:       width: safeSize,
+4332:       height: safeSize,
+4333:     );
+4334:   }
+4335: }
+4336: 
+
+============================================================
+CLASS: _DraftRowToolbar
+============================================================
+LINES 4337-4427
+
+4337: class _DraftRowToolbar extends StatelessWidget {
+4338:   const _DraftRowToolbar({
+4339:     required this.activePlantName,
+4340:     required this.settings,
+4341:     required this.hasDraft,
+4342:     required this.previewLengthMeters,
+4343:     required this.previewPlantCount,
+4344:     required this.onSave,
+4345:     required this.onClear,
+4346:   });
+4347: 
+4348:   final String? activePlantName;
+4349:   final _PathPlacementSettings settings;
+4350:   final bool hasDraft;
+4351:   final double previewLengthMeters;
+4352:   final int previewPlantCount;
+4353:   final VoidCallback? onSave;
+4354:   final VoidCallback? onClear;
+4355: 
+4356:   @override
+4357:   Widget build(BuildContext context) {
+4358:     final plantName = activePlantName;
+4359: 
+4360:     final modeText = switch (settings.tool) {
+4361:       _PlacementTool.straight => 'Straight row',
+4362:       _PlacementTool.freehand => 'Freehand row',
+4363:       _PlacementTool.wave => 'Wave row',
+4364:       _PlacementTool.block => 'Plant block',
+4365:     };
+4366: 
+4367:     final instruction = plantName == null
+4368:         ? 'Choose a plant from the left panel.'
+4369:         : hasDraft
+4370:         ? 'Drag the green handles to edit. Change spacing on the left, then save.'
+4371:         : 'Draw inside the bed. The row stays editable before saving.';
+4372: 
+4373:     return Container(
+4374:       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+4375:       decoration: BoxDecoration(
+4376:         color: Colors.white.withValues(alpha: 0.94),
+4377:         borderRadius: BorderRadius.circular(18),
+4378:         border: Border.all(color: GardenTheme.border),
+4379:         boxShadow: const [
+4380:           BoxShadow(
+4381:             color: Color(0x16000000),
+4382:             blurRadius: 16,
+4383:             offset: Offset(0, 6),
+4384:           ),
+4385:         ],
+4386:       ),
+4387:       child: Row(
+4388:         children: [
+4389:           const Icon(Icons.timeline, color: GardenTheme.good, size: 18),
+4390:           const SizedBox(width: 8),
+4391:           Expanded(
+4392:             child: Text(
+4393:               plantName == null
+4394:                   ? instruction
+4395:                   : '$modeText - $previewPlantCount plants - ${previewLengthMeters.toStringAsFixed(1)}m - ${(settings.spacingMeters * 100).round()}cm spacing. $instruction',
+4396:               maxLines: 2,
+4397:               overflow: TextOverflow.ellipsis,
+4398:               style: const TextStyle(
+4399:                 color: GardenTheme.ink,
+4400:                 fontSize: 12,
+4401:                 fontWeight: FontWeight.w800,
+4402:                 height: 1.25,
+4403:               ),
+4404:             ),
+4405:           ),
+4406:           const SizedBox(width: 8),
+4407:           OutlinedButton.icon(
+4408:             onPressed: onClear,
+4409:             icon: const Icon(Icons.close, size: 15),
+4410:             label: const Text('Clear'),
+4411:           ),
+4412:           const SizedBox(width: 8),
+4413:           FilledButton.icon(
+4414:             onPressed: onSave,
+4415:             icon: const Icon(Icons.check, size: 15),
+4416:             label: const Text('Save row'),
+4417:             style: FilledButton.styleFrom(
+4418:               backgroundColor: GardenTheme.good,
+4419:               foregroundColor: GardenTheme.cream,
+4420:             ),
+4421:           ),
+4422:         ],
+4423:       ),
+4424:     );
+4425:   }
+4426: }
+4427: 
+
+============================================================
+CLASS: _EditableDraftPathPainter
+============================================================
+LINES 4428-4512
+
+4428: class _EditableDraftPathPainter extends CustomPainter {
+4429:   const _EditableDraftPathPainter({
+4430:     required this.pathPoints,
+4431:     required this.controlPoints,
+4432:     required this.plantPoints,
+4433:     required this.settings,
+4434:     required this.pixelsPerMeter,
+4435:     required this.isSavedDraft,
+4436:   });
+4437: 
+4438:   final List<Offset> pathPoints;
+4439:   final List<Offset> controlPoints;
+4440:   final List<Offset> plantPoints;
+4441:   final _PathPlacementSettings settings;
+4442:   final double pixelsPerMeter;
+4443:   final bool isSavedDraft;
+4444: 
+4445:   @override
+4446:   void paint(Canvas canvas, Size size) {
+4447:     if (pathPoints.isEmpty) return;
+4448: 
+4449:     final pathPaint = Paint()
+4450:       ..color = GardenTheme.good.withValues(alpha: 0.88)
+4451:       ..strokeWidth = settings.tool == _PlacementTool.block
+4452:           ? 2
+4453:           : math.max(2.5, settings.rowWidthMeters * pixelsPerMeter)
+4454:       ..strokeCap = StrokeCap.round
+4455:       ..strokeJoin = StrokeJoin.round
+4456:       ..style = PaintingStyle.stroke;
+4457: 
+4458:     if (pathPoints.length >= 2) {
+4459:       final path = Path()..moveTo(pathPoints.first.dx, pathPoints.first.dy);
+4460: 
+4461:       for (var i = 1; i < pathPoints.length; i++) {
+4462:         path.lineTo(pathPoints[i].dx, pathPoints[i].dy);
+4463:       }
+4464: 
+4465:       canvas.drawPath(path, pathPaint);
+4466:     }
+4467: 
+4468:     final plantFill = Paint()..color = Colors.white;
+4469:     final plantBorder = Paint()
+4470:       ..color = GardenTheme.good
+4471:       ..strokeWidth = 2
+4472:       ..style = PaintingStyle.stroke;
+4473: 
+4474:     final plantRadius = isSavedDraft ? 6.0 : 5.0;
+4475: 
+4476:     for (final point in plantPoints) {
+4477:       canvas.drawCircle(point, plantRadius, plantFill);
+4478:       canvas.drawCircle(point, plantRadius, plantBorder);
+4479:     }
+4480: 
+4481:     final handleFill = Paint()..color = GardenTheme.good;
+4482:     final handleBorder = Paint()
+4483:       ..color = Colors.white
+4484:       ..strokeWidth = 2
+4485:       ..style = PaintingStyle.stroke;
+4486: 
+4487:     for (var i = 0; i < controlPoints.length; i++) {
+4488:       final point = controlPoints[i];
+4489: 
+4490:       if (settings.tool == _PlacementTool.freehand &&
+4491:           i != 0 &&
+4492:           i != controlPoints.length - 1) {
+4493:         final stride = math.max(1, controlPoints.length ~/ 8);
+4494:         if (i % stride != 0) continue;
+4495:       }
+4496: 
+4497:       canvas.drawCircle(point, 9, handleFill);
+4498:       canvas.drawCircle(point, 9, handleBorder);
+4499:     }
+4500:   }
+4501: 
+4502:   @override
+4503:   bool shouldRepaint(covariant _EditableDraftPathPainter oldDelegate) {
+4504:     return oldDelegate.pathPoints != pathPoints ||
+4505:         oldDelegate.controlPoints != controlPoints ||
+4506:         oldDelegate.plantPoints != plantPoints ||
+4507:         oldDelegate.settings != settings ||
+4508:         oldDelegate.pixelsPerMeter != pixelsPerMeter ||
+4509:         oldDelegate.isSavedDraft != isSavedDraft;
+4510:   }
+4511: }
+4512: 
+
+============================================================
+CLASS: _FlexibleBedBadge
+============================================================
+LINES 4513-4545
+
+4513: class _FlexibleBedBadge extends StatelessWidget {
+4514:   const _FlexibleBedBadge({required this.bed});
+4515: 
+4516:   final Bed bed;
+4517: 
+4518:   @override
+4519:   Widget build(BuildContext context) {
+4520:     return Container(
+4521:       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+4522:       decoration: BoxDecoration(
+4523:         color: Colors.white.withValues(alpha: 0.92),
+4524:         borderRadius: BorderRadius.circular(999),
+4525:         border: Border.all(color: GardenTheme.border),
+4526:         boxShadow: const [
+4527:           BoxShadow(
+4528:             color: Color(0x22000000),
+4529:             blurRadius: 10,
+4530:             offset: Offset(0, 3),
+4531:           ),
+4532:         ],
+4533:       ),
+4534:       child: Text(
+4535:         '${bed.name} - ${bed.width.toStringAsFixed(1)}m x ${bed.height.toStringAsFixed(1)}m',
+4536:         style: const TextStyle(
+4537:           color: GardenTheme.ink,
+4538:           fontSize: 12,
+4539:           fontWeight: FontWeight.w900,
+4540:         ),
+4541:       ),
+4542:     );
+4543:   }
+4544: }
+4545: 
+
+============================================================
+CLASS: _FlexibleCanvasHint
+============================================================
+LINES 4546-4581
+
+4546: class _FlexibleCanvasHint extends StatelessWidget {
+4547:   const _FlexibleCanvasHint({required this.planting, required this.settings});
+4548: 
+4549:   final bool planting;
+4550:   final _PathPlacementSettings settings;
+4551: 
+4552:   @override
+4553:   Widget build(BuildContext context) {
+4554:     final text = !planting
+4555:         ? 'Choose a plant.'
+4556:         : switch (settings.tool) {
+4557:             _PlacementTool.straight => 'Drag a straight row.',
+4558:             _PlacementTool.freehand => 'Drag a freehand row.',
+4559:             _PlacementTool.wave => 'Drag a wave row.',
+4560:             _PlacementTool.block => 'Tap or drag to place plants.',
+4561:           };
+4562: 
+4563:     return Container(
+4564:       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+4565:       decoration: BoxDecoration(
+4566:         color: Colors.white.withValues(alpha: 0.90),
+4567:         borderRadius: BorderRadius.circular(999),
+4568:         border: Border.all(color: GardenTheme.border),
+4569:       ),
+4570:       child: Text(
+4571:         text,
+4572:         style: const TextStyle(
+4573:           color: GardenTheme.muted,
+4574:           fontSize: 11,
+4575:           fontWeight: FontWeight.w900,
+4576:         ),
+4577:       ),
+4578:     );
+4579:   }
+4580: }
+4581: 
+
+============================================================
+CLASS: _FlexiblePlantingBadge
+============================================================
+LINES 4582-4624
+
+4582: class _FlexiblePlantingBadge extends StatelessWidget {
+4583:   const _FlexiblePlantingBadge({
+4584:     required this.plantName,
+4585:     required this.settings,
+4586:     required this.previewLengthMeters,
+4587:     required this.previewPlantCount,
+4588:   });
+4589: 
+4590:   final String plantName;
+4591:   final _PathPlacementSettings settings;
+4592:   final double previewLengthMeters;
+4593:   final int previewPlantCount;
+4594: 
+4595:   @override
+4596:   Widget build(BuildContext context) {
+4597:     final toolLabel = switch (settings.tool) {
+4598:       _PlacementTool.straight => 'straight',
+4599:       _PlacementTool.freehand => 'freehand',
+4600:       _PlacementTool.wave => 'wave',
+4601:       _PlacementTool.block => 'plant',
+4602:     };
+4603: 
+4604:     return Container(
+4605:       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+4606:       decoration: BoxDecoration(
+4607:         color: GardenTheme.good.withValues(alpha: 0.90),
+4608:         borderRadius: BorderRadius.circular(999),
+4609:         border: Border.all(color: Colors.white, width: 1),
+4610:       ),
+4611:       child: Text(
+4612:         previewPlantCount <= 0
+4613:             ? 'Placing $plantName - $toolLabel'
+4614:             : '$plantName - $previewPlantCount plants - ${previewLengthMeters.toStringAsFixed(1)}m',
+4615:         style: const TextStyle(
+4616:           color: Colors.white,
+4617:           fontSize: 12,
+4618:           fontWeight: FontWeight.w900,
+4619:         ),
+4620:       ),
+4621:     );
+4622:   }
+4623: }
+4624: 
+
+============================================================
+CLASS: _FlexibleBedEmptyState
+============================================================
+LINES 4625-4653
+
+4625: class _FlexibleBedEmptyState extends StatelessWidget {
+4626:   const _FlexibleBedEmptyState();
+4627: 
+4628:   @override
+4629:   Widget build(BuildContext context) {
+4630:     return Center(
+4631:       child: Container(
+4632:         width: 360,
+4633:         padding: const EdgeInsets.all(18),
+4634:         decoration: BoxDecoration(
+4635:           color: Colors.white.withValues(alpha: 0.94),
+4636:           borderRadius: BorderRadius.circular(20),
+4637:           border: Border.all(color: GardenTheme.border),
+4638:         ),
+4639:         child: const Text(
+4640:           'Add a bed first. The Map tab works on one editable bed at a time.',
+4641:           textAlign: TextAlign.center,
+4642:           style: TextStyle(
+4643:             color: GardenTheme.ink,
+4644:             fontSize: 14,
+4645:             fontWeight: FontWeight.w800,
+4646:             height: 1.35,
+4647:           ),
+4648:         ),
+4649:       ),
+4650:     );
+4651:   }
+4652: }
+4653: 
+
+============================================================
+CLASS: _FlexibleBackdropPainter
+============================================================
+LINES 4654-4672
+
+4654: class _FlexibleBackdropPainter extends CustomPainter {
+4655:   const _FlexibleBackdropPainter();
+4656: 
+4657:   @override
+4658:   void paint(Canvas canvas, Size size) {
+4659:     final paint = Paint()..color = const Color(0x0CA86412);
+4660: 
+4661:     for (double x = 24; x < size.width; x += 44) {
+4662:       for (double y = 22; y < size.height; y += 42) {
+4663:         final wobble = ((x + y) % 23) / 23;
+4664:         canvas.drawCircle(Offset(x + wobble * 5, y), 1.0, paint);
+4665:       }
+4666:     }
+4667:   }
+4668: 
+4669:   @override
+4670:   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+4671: }
+4672: 
+
+============================================================
+CLASS: _FlexibleBedGridPainter
+============================================================
+LINES 4673-4733
+
+4673: class _FlexibleBedGridPainter extends CustomPainter {
+4674:   const _FlexibleBedGridPainter({required this.pixelsPerMeter});
+4675: 
+4676:   final double pixelsPerMeter;
+4677: 
+4678:   @override
+4679:   void paint(Canvas canvas, Size size) {
+4680:     final meterPaint = Paint()
+4681:       ..color = const Color(0x26E8D8BE)
+4682:       ..strokeWidth = 1.1;
+4683: 
+4684:     final halfMeterPaint = Paint()
+4685:       ..color = const Color(0x14E8D8BE)
+4686:       ..strokeWidth = 0.7;
+4687: 
+4688:     final rowPaint = Paint()
+4689:       ..color = const Color(0x20FFFFFF)
+4690:       ..strokeWidth = 1.2
+4691:       ..strokeCap = StrokeCap.round;
+4692: 
+4693:     final halfStep = pixelsPerMeter / 2;
+4694: 
+4695:     var index = 0;
+4696: 
+4697:     for (double x = 0; x <= size.width; x += halfStep) {
+4698:       canvas.drawLine(
+4699:         Offset(x, 0),
+4700:         Offset(x, size.height),
+4701:         index.isEven ? meterPaint : halfMeterPaint,
+4702:       );
+4703:       index++;
+4704:     }
+4705: 
+4706:     index = 0;
+4707: 
+4708:     for (double y = 0; y <= size.height; y += halfStep) {
+4709:       canvas.drawLine(
+4710:         Offset(0, y),
+4711:         Offset(size.width, y),
+4712:         index.isEven ? meterPaint : halfMeterPaint,
+4713:       );
+4714:       index++;
+4715:     }
+4716: 
+4717:     for (double y = 24; y <= size.height; y += 26) {
+4718:       final path = Path()..moveTo(0, y);
+4719: 
+4720:       for (double x = 0; x <= size.width; x += 56) {
+4721:         path.quadraticBezierTo(x + 22, y + 4, x + 56, y);
+4722:       }
+4723: 
+4724:       canvas.drawPath(path, rowPaint);
+4725:     }
+4726:   }
+4727: 
+4728:   @override
+4729:   bool shouldRepaint(covariant _FlexibleBedGridPainter oldDelegate) {
+4730:     return oldDelegate.pixelsPerMeter != pixelsPerMeter;
+4731:   }
+4732: }
+4733: 
+
+============================================================
+CLASS: _FlexiblePathPreviewPainter
+============================================================
+LINES 4734-4820
+
+4734: class _FlexiblePathPreviewPainter extends CustomPainter {
+4735:   const _FlexiblePathPreviewPainter({
+4736:     required this.points,
+4737:     required this.settings,
+4738:     required this.pixelsPerMeter,
+4739:   });
+4740: 
+4741:   final List<Offset> points;
+4742:   final _PathPlacementSettings settings;
+4743:   final double pixelsPerMeter;
+4744: 
+4745:   @override
+4746:   void paint(Canvas canvas, Size size) {
+4747:     if (points.isEmpty) return;
+4748: 
+4749:     final pathPaint = Paint()
+4750:       ..color = GardenTheme.good.withValues(alpha: 0.92)
+4751:       ..strokeWidth = settings.tool == _PlacementTool.block
+4752:           ? 2
+4753:           : math.max(3, settings.rowWidthMeters * pixelsPerMeter)
+4754:       ..strokeCap = StrokeCap.round
+4755:       ..strokeJoin = StrokeJoin.round
+4756:       ..style = PaintingStyle.stroke;
+4757: 
+4758:     if (points.length >= 2) {
+4759:       final path = Path()..moveTo(points.first.dx, points.first.dy);
+4760: 
+4761:       for (var i = 1; i < points.length; i++) {
+4762:         path.lineTo(points[i].dx, points[i].dy);
+4763:       }
+4764: 
+4765:       canvas.drawPath(path, pathPaint);
+4766:     }
+4767: 
+4768:     final plantPaint = Paint()..color = Colors.white;
+4769:     final plantBorder = Paint()
+4770:       ..color = GardenTheme.good
+4771:       ..strokeWidth = 2
+4772:       ..style = PaintingStyle.stroke;
+4773: 
+4774:     final plantPoints = _pointsAtSpacing(
+4775:       points,
+4776:       math.max(1.0, settings.spacingMeters * pixelsPerMeter),
+4777:     );
+4778: 
+4779:     for (final point in plantPoints) {
+4780:       canvas.drawCircle(point, 5, plantPaint);
+4781:       canvas.drawCircle(point, 5, plantBorder);
+4782:     }
+4783:   }
+4784: 
+4785:   static List<Offset> _pointsAtSpacing(List<Offset> pathPx, double spacingPx) {
+4786:     if (pathPx.isEmpty) return const [];
+4787:     if (pathPx.length == 1) return [pathPx.first];
+4788: 
+4789:     final out = <Offset>[pathPx.first];
+4790:     var nextDistance = spacingPx;
+4791:     var travelled = 0.0;
+4792: 
+4793:     for (var i = 1; i < pathPx.length; i++) {
+4794:       final a = pathPx[i - 1];
+4795:       final b = pathPx[i];
+4796:       final segment = b - a;
+4797:       final segmentLength = segment.distance;
+4798: 
+4799:       if (segmentLength <= 0) continue;
+4800: 
+4801:       while (travelled + segmentLength >= nextDistance) {
+4802:         final t = (nextDistance - travelled) / segmentLength;
+4803:         out.add(Offset(a.dx + segment.dx * t, a.dy + segment.dy * t));
+4804:         nextDistance += spacingPx;
+4805:       }
+4806: 
+4807:       travelled += segmentLength;
+4808:     }
+4809: 
+4810:     return out;
+4811:   }
+4812: 
+4813:   @override
+4814:   bool shouldRepaint(covariant _FlexiblePathPreviewPainter oldDelegate) {
+4815:     return oldDelegate.points != points ||
+4816:         oldDelegate.settings != settings ||
+4817:         oldDelegate.pixelsPerMeter != pixelsPerMeter;
+4818:   }
+4819: }
+4820: 
+
+============================================================
+CLASS: _CropRowDraftPainter
+============================================================
+LINES 4821-4949
+
+4821: class _CropRowDraftPainter extends CustomPainter {
+4822:   const _CropRowDraftPainter({
+4823:     required this.cropName,
+4824:     required this.startGarden,
+4825:     required this.currentGarden,
+4826:     required this.bed,
+4827:     required this.pixelsPerMeter,
+4828:   });
+4829: 
+4830:   final String? cropName;
+4831:   final Offset? startGarden;
+4832:   final Offset? currentGarden;
+4833:   final Bed? bed;
+4834:   final double pixelsPerMeter;
+4835: 
+4836:   @override
+4837:   void paint(Canvas canvas, Size size) {
+4838:     final name = cropName;
+4839:     final start = startGarden;
+4840:     final current = currentGarden;
+4841:     final targetBed = bed;
+4842: 
+4843:     if (name == null || start == null || current == null || targetBed == null) {
+4844:       return;
+4845:     }
+4846: 
+4847:     final rect = _previewRect(targetBed, start, current);
+4848: 
+4849:     final pixelRect = Rect.fromLTWH(
+4850:       rect.left * pixelsPerMeter,
+4851:       rect.top * pixelsPerMeter,
+4852:       rect.width * pixelsPerMeter,
+4853:       rect.height * pixelsPerMeter,
+4854:     );
+4855: 
+4856:     final rrect = RRect.fromRectAndRadius(pixelRect, const Radius.circular(18));
+4857: 
+4858:     final fillPaint = Paint()
+4859:       ..color = const Color(0xFFD8D8D8).withValues(alpha: 0.72)
+4860:       ..style = PaintingStyle.fill;
+4861: 
+4862:     final borderPaint = Paint()
+4863:       ..color = GardenTheme.good
+4864:       ..strokeWidth = 2
+4865:       ..style = PaintingStyle.stroke;
+4866: 
+4867:     canvas.drawRRect(rrect, fillPaint);
+4868:     canvas.drawRRect(rrect, borderPaint);
+4869: 
+4870:     final labelPainter = TextPainter(
+4871:       text: TextSpan(
+4872:         text: name,
+4873:         style: const TextStyle(
+4874:           color: GardenTheme.ink,
+4875:           fontSize: 11,
+4876:           fontWeight: FontWeight.w900,
+4877:         ),
+4878:       ),
+4879:       textDirection: TextDirection.ltr,
+4880:     )..layout(maxWidth: pixelRect.width - 16);
+4881: 
+4882:     final labelRect = Rect.fromCenter(
+4883:       center: pixelRect.center,
+4884:       width: labelPainter.width + 18,
+4885:       height: 25,
+4886:     );
+4887: 
+4888:     final labelPaint = Paint()
+4889:       ..color = GardenTheme.panel.withValues(alpha: 0.95)
+4890:       ..style = PaintingStyle.fill;
+4891: 
+4892:     canvas.drawRRect(
+4893:       RRect.fromRectAndRadius(labelRect, const Radius.circular(8)),
+4894:       labelPaint,
+4895:     );
+4896: 
+4897:     labelPainter.paint(
+4898:       canvas,
+4899:       Offset(
+4900:         labelRect.left + 9,
+4901:         labelRect.top + (labelRect.height - labelPainter.height) / 2,
+4902:       ),
+4903:     );
+4904:   }
+4905: 
+4906:   Rect _previewRect(Bed bed, Offset start, Offset current) {
+4907:     final dx = (current.dx - start.dx).abs();
+4908:     final dy = (current.dy - start.dy).abs();
+4909:     final horizontal = dx >= dy;
+4910: 
+4911:     const thickness = 1.1;
+4912:     final centerX = (start.dx + current.dx) / 2;
+4913:     final centerY = (start.dy + current.dy) / 2;
+4914: 
+4915:     if (horizontal) {
+4916:       final width = dx < 0.8 ? 2.4 : dx;
+4917:       final safeWidth = width.clamp(0.5, bed.width).toDouble();
+4918:       final left = (centerX - safeWidth / 2)
+4919:           .clamp(bed.x, bed.x + bed.width - safeWidth)
+4920:           .toDouble();
+4921:       final top = (centerY - thickness / 2)
+4922:           .clamp(bed.y, bed.y + bed.height - thickness)
+4923:           .toDouble();
+4924: 
+4925:       return Rect.fromLTWH(left, top, safeWidth, thickness);
+4926:     }
+4927: 
+4928:     final height = dy < 0.8 ? 2.4 : dy;
+4929:     final safeHeight = height.clamp(0.5, bed.height).toDouble();
+4930:     final left = (centerX - thickness / 2)
+4931:         .clamp(bed.x, bed.x + bed.width - thickness)
+4932:         .toDouble();
+4933:     final top = (centerY - safeHeight / 2)
+4934:         .clamp(bed.y, bed.y + bed.height - safeHeight)
+4935:         .toDouble();
+4936: 
+4937:     return Rect.fromLTWH(left, top, thickness, safeHeight);
+4938:   }
+4939: 
+4940:   @override
+4941:   bool shouldRepaint(covariant _CropRowDraftPainter oldDelegate) {
+4942:     return oldDelegate.cropName != cropName ||
+4943:         oldDelegate.startGarden != startGarden ||
+4944:         oldDelegate.currentGarden != currentGarden ||
+4945:         oldDelegate.bed != bed ||
+4946:         oldDelegate.pixelsPerMeter != pixelsPerMeter;
+4947:   }
+4948: }
+4949: 

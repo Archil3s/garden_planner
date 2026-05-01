@@ -1,0 +1,63 @@
+﻿543: class _CurrentArea extends StatelessWidget {
+544:   const _CurrentArea({
+545:     required this.viewMode,
+546:     required this.controller,
+547:     required this.visibleBeds,
+548:     required this.canvasWidth,
+549:     required this.canvasHeight,
+550:     required this.pixelsPerMeter,
+551:     required this.onOpenBedDetails,
+552:     required this.onOpenMapView,
+553:   });
+554: 
+555:   final BedViewMode viewMode;
+556:   final GardenController controller;
+557:   final List<Bed> visibleBeds;
+558:   final double canvasWidth;
+559:   final double canvasHeight;
+560:   final double pixelsPerMeter;
+561:   final ValueChanged<Bed> onOpenBedDetails;
+562:   final VoidCallback onOpenMapView;
+563: 
+564:   @override
+565:   Widget build(BuildContext context) {
+566:     switch (viewMode) {
+567:       case BedViewMode.dashboard:
+568:         return PlannerDashboardOverview(
+569:           beds: controller.beds,
+570:           overlapCount: controller.overlapCount,
+571:           showWeather: true,
+572:           locationName: controller.project.locationName,
+573:           latitude: controller.project.latitude,
+574:           longitude: controller.project.longitude,
+575:         );
+576:       case BedViewMode.seedlings:
+577:         return SeedlingsView(
+578:           seedlings: controller.seedlings,
+579:           beds: controller.beds,
+580:           onAddSeedling: controller.addSeedling,
+581:           onUpdateSeedling: controller.updateSeedling,
+582:           onDeleteSeedling: controller.deleteSeedling,
+583:           onTransplantSeedling: controller.transplantSeedlingToBed,
+584:           onOpenMapView: onOpenMapView,
+585:         );
+586:       case BedViewMode.map:
+587:         return _MapView(
+588:           controller: controller,
+589:           beds: visibleBeds,
+590:           canvasWidth: canvasWidth,
+591:           canvasHeight: canvasHeight,
+592:           pixelsPerMeter: pixelsPerMeter,
+593:           onOpenBedDetails: onOpenBedDetails,
+594:         );
+595:       case BedViewMode.cards:
+596:         return _CardsView(
+597:           beds: visibleBeds,
+598:           onOpenBedDetails: onOpenBedDetails,
+599:         );
+600:     }
+601:   }
+602: }
+603: 
+604: enum _PlacementMode { row, block }
+605: 

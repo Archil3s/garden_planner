@@ -1,0 +1,931 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class FruitTreeMapView extends StatefulWidget {
+  const FruitTreeMapView({super.key});
+
+  @override
+  State<FruitTreeMapView> createState() => _FruitTreeMapViewState();
+}
+
+class _FruitTreeMapViewState extends State<FruitTreeMapView>
+    with TickerProviderStateMixin {
+  static const String storageKey = 'animated_fruit_tree_map_v1';
+
+  final MapController mapController = MapController();
+  final List<_FruitTreeMarker> markers = <_FruitTreeMarker>[];
+
+  late final AnimationController pulseController;
+  late final AnimationController pinController;
+
+  LatLng? currentPosition;
+  _FruitTreeMarker? selectedMarker;
+
+  bool loadingLocation = false;
+  bool permissionDenied = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+
+    pinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..forward();
+
+    _loadMarkers();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadCurrentLocation();
+    });
+  }
+
+  @override
+  void dispose() {
+    pulseController.dispose();
+    pinController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadMarkers() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(storageKey);
+
+    if (raw == null || raw.trim().isEmpty) return;
+
+    final decoded = jsonDecode(raw) as List<dynamic>;
+
+    setState(() {
+      markers
+        ..clear()
+        ..addAll(
+          decoded.map((item) {
+            return _FruitTreeMarker.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            );
+          }),
+        );
+    });
+
+    pinController
+      ..reset()
+      ..forward();
+  }
+
+  Future<void> _saveMarkers() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(
+      storageKey,
+      jsonEncode(markers.map((marker) => marker.toJson()).toList()),
+    );
+  }
+
+  Future<void> _loadCurrentLocation() async {
+    setState(() {
+      loadingLocation = true;
+      permissionDenied = false;
+    });
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+      if (!serviceEnabled) {
+        setState(() {
+          loadingLocation = false;
+          permissionDenied = true;
+        });
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        setState(() {
+          loadingLocation = false;
+          permissionDenied = true;
+        });
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      final next = LatLng(position.latitude, position.longitude);
+
+      setState(() {
+        currentPosition = next;
+        loadingLocation = false;
+        permissionDenied = false;
+      });
+
+      mapController.move(next, 18);
+    } on MissingPluginException {
+      setState(() {
+        loadingLocation = false;
+        permissionDenied = true;
+      });
+    } catch (_) {
+      setState(() {
+        loadingLocation = false;
+        permissionDenied = true;
+      });
+    }
+  }
+
+  Future<void> _addMarkerAtCurrentLocation() async {
+    if (currentPosition == null) {
+      await _loadCurrentLocation();
+    }
+
+    final position = currentPosition;
+    if (position == null) return;
+
+    await _addMarkerAt(position);
+  }
+
+  Future<void> _addMarkerAt(LatLng point) async {
+    final marker = await _openMarkerSheet(initialPosition: point);
+
+    if (marker == null) return;
+
+    setState(() {
+      markers.add(marker);
+      selectedMarker = marker;
+    });
+
+    pinController
+      ..reset()
+      ..forward();
+
+    await _saveMarkers();
+  }
+
+  Future<void> _editMarker(_FruitTreeMarker marker) async {
+    final updated = await _openMarkerSheet(
+      existing: marker,
+      initialPosition: marker.position,
+    );
+
+    if (updated == null) return;
+
+    setState(() {
+      final index = markers.indexWhere((item) => item.id == marker.id);
+
+      if (index != -1) {
+        markers[index] = updated;
+        selectedMarker = updated;
+      }
+    });
+
+    await _saveMarkers();
+  }
+
+  Future<void> _deleteMarker(_FruitTreeMarker marker) async {
+    setState(() {
+      markers.removeWhere((item) => item.id == marker.id);
+
+      if (selectedMarker?.id == marker.id) {
+        selectedMarker = null;
+      }
+    });
+
+    await _saveMarkers();
+  }
+
+  Future<void> _openExternalMaps(_FruitTreeMarker marker) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query='
+      '${marker.latitude},${marker.longitude}',
+    );
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!launched && mounted) {
+      await Clipboard.setData(
+        ClipboardData(text: '${marker.latitude}, ${marker.longitude}'),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Coordinates copied.'),
+          duration: Duration(milliseconds: 1200),
+        ),
+      );
+    }
+  }
+
+  Future<_FruitTreeMarker?> _openMarkerSheet({
+    _FruitTreeMarker? existing,
+    required LatLng initialPosition,
+  }) async {
+    final typeController = TextEditingController(text: existing?.type ?? '');
+    final notesController = TextEditingController(text: existing?.notes ?? '');
+
+    final result = await showModalBottomSheet<_FruitTreeMarker>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFFFFFBF4),
+      builder: (context) {
+        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 18),
+          child: SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Text(
+                  existing == null ? 'Add fruit tree' : 'Edit fruit tree',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: typeController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Fruit tree type',
+                    hintText: 'Apple, pear, plum, almond, fig...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final type in const [
+                      'Apple',
+                      'Pear',
+                      'Plum',
+                      'Cherry',
+                      'Fig',
+                      'Almond',
+                      'Peach',
+                      'Lemon',
+                      'Orange',
+                      'Mulberry',
+                      'Olive',
+                      'Walnut',
+                    ])
+                      ActionChip(
+                        label: Text(type),
+                        onPressed: () {
+                          typeController.text = type;
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesController,
+                  minLines: 2,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes',
+                    hintText: 'Access, fruiting season, condition, landmark...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'GPS: ${initialPosition.latitude.toStringAsFixed(6)}, '
+                  '${initialPosition.longitude.toStringAsFixed(6)}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () {
+                    final type = typeController.text.trim();
+
+                    if (type.isEmpty) return;
+
+                    Navigator.of(context).pop(
+                      _FruitTreeMarker(
+                        id:
+                            existing?.id ??
+                            'fruit-${DateTime.now().microsecondsSinceEpoch}',
+                        type: type,
+                        notes: notesController.text.trim(),
+                        latitude: initialPosition.latitude,
+                        longitude: initialPosition.longitude,
+                        createdAt: existing?.createdAt ?? DateTime.now(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.save_outlined),
+                  label: Text(
+                    existing == null ? 'Save marker' : 'Save changes',
+                  ),
+                ),
+                if (existing != null) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _deleteMarker(existing);
+                    },
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Delete marker'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    typeController.dispose();
+    notesController.dispose();
+
+    return result;
+  }
+
+  void _openMarkerList() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFFFFFBF4),
+      builder: (context) {
+        return SafeArea(
+          child: markers.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(18),
+                  child: Text(
+                    'No fruit tree markers yet. Long-press the map to add one.',
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
+                  itemCount: markers.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final marker = markers[index];
+
+                    return Card(
+                      elevation: 0,
+                      child: ListTile(
+                        leading: const Icon(Icons.park_outlined),
+                        title: Text(
+                          marker.type,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        subtitle: Text(
+                          marker.notes.isEmpty
+                              ? '${marker.latitude.toStringAsFixed(5)}, ${marker.longitude.toStringAsFixed(5)}'
+                              : marker.notes,
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.of(context).pop();
+
+                          setState(() {
+                            selectedMarker = marker;
+                          });
+
+                          mapController.move(marker.position, 18);
+                        },
+                      ),
+                    );
+                  },
+                ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final start =
+        currentPosition ??
+        (markers.isNotEmpty
+            ? markers.first.position
+            : const LatLng(-41.5111, 173.9547));
+
+    final status = permissionDenied
+        ? 'Map works. Location unavailable.'
+        : loadingLocation
+        ? 'Finding location...'
+        : currentPosition == null
+        ? '${markers.length} fruit tree markers'
+        : 'Pinned to your location • ${markers.length} markers';
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F2EA),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _AnimatedMapHeader(
+              status: status,
+              markerCount: markers.length,
+              onLocate: _loadCurrentLocation,
+              onList: _openMarkerList,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: mapController,
+                        options: MapOptions(
+                          initialCenter: start,
+                          initialZoom:
+                              currentPosition == null && markers.isEmpty
+                              ? 12
+                              : 18,
+                          onTap: (_, __) {
+                            setState(() {
+                              selectedMarker = null;
+                            });
+                          },
+                          onLongPress: (_, point) => _addMarkerAt(point),
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.example.garden_planner',
+                            tileProvider: NetworkTileProvider(),
+                          ),
+                          MarkerLayer(
+                            markers: [
+                              if (currentPosition != null)
+                                Marker(
+                                  point: currentPosition!,
+                                  width: 88,
+                                  height: 88,
+                                  child: _PulsingLocationMarker(
+                                    animation: pulseController,
+                                  ),
+                                ),
+                              for (final marker in markers)
+                                Marker(
+                                  point: marker.position,
+                                  width: selectedMarker?.id == marker.id
+                                      ? 76
+                                      : 62,
+                                  height: selectedMarker?.id == marker.id
+                                      ? 76
+                                      : 62,
+                                  child: _AnimatedFruitPin(
+                                    animation: pinController,
+                                    selected: selectedMarker?.id == marker.id,
+                                    label: marker.type,
+                                    onTap: () {
+                                      setState(() {
+                                        selectedMarker = marker;
+                                      });
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        top: 12,
+                        child: _GlassTipCard(
+                          text:
+                              'Long-press to add a fruit tree. Tap pins to inspect.',
+                        ),
+                      ),
+                      Positioned(
+                        right: 12,
+                        bottom: selectedMarker == null ? 12 : 132,
+                        child: Column(
+                          children: [
+                            FloatingActionButton.small(
+                              heroTag: 'animated-map-add-current',
+                              onPressed: _addMarkerAtCurrentLocation,
+                              child: const Icon(
+                                Icons.add_location_alt_outlined,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            FloatingActionButton.small(
+                              heroTag: 'animated-map-list',
+                              onPressed: _openMarkerList,
+                              child: const Icon(Icons.list),
+                            ),
+                            const SizedBox(height: 10),
+                            FloatingActionButton.small(
+                              heroTag: 'animated-map-location',
+                              onPressed: _loadCurrentLocation,
+                              child: const Icon(Icons.my_location),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOutCubic,
+                        left: 12,
+                        right: 12,
+                        bottom: selectedMarker == null ? -150 : 12,
+                        child: selectedMarker == null
+                            ? const SizedBox.shrink()
+                            : _SelectedMarkerCard(
+                                marker: selectedMarker!,
+                                onEdit: () => _editMarker(selectedMarker!),
+                                onOpenMaps: () =>
+                                    _openExternalMaps(selectedMarker!),
+                                onClose: () {
+                                  setState(() {
+                                    selectedMarker = null;
+                                  });
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnimatedMapHeader extends StatelessWidget {
+  const _AnimatedMapHeader({
+    required this.status,
+    required this.markerCount,
+    required this.onLocate,
+    required this.onList,
+  });
+
+  final String status;
+  final int markerCount;
+  final VoidCallback onLocate;
+  final VoidCallback onList;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.96, end: 1),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) {
+        return Transform.scale(scale: scale, child: child);
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Card(
+          elevation: 0,
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(Icons.map_outlined, size: 30),
+                    if (markerCount > 0)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF2E7D32),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Text(
+                              '$markerCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Animated Fruit Map\n$status',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                IconButton.outlined(
+                  onPressed: onList,
+                  icon: const Icon(Icons.list),
+                ),
+                const SizedBox(width: 6),
+                IconButton.outlined(
+                  onPressed: onLocate,
+                  icon: const Icon(Icons.my_location),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PulsingLocationMarker extends StatelessWidget {
+  const _PulsingLocationMarker({required this.animation});
+
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final pulse = animation.value;
+        final size = 34.0 + pulse * 42.0;
+        final opacity = (1.0 - pulse).clamp(0.0, 1.0);
+
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: opacity * 0.28),
+                shape: BoxShape.circle,
+              ),
+            ),
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.my_location,
+                color: Colors.white,
+                size: 19,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AnimatedFruitPin extends StatelessWidget {
+  const _AnimatedFruitPin({
+    required this.animation,
+    required this.selected,
+    required this.label,
+    required this.onTap,
+  });
+
+  final Animation<double> animation;
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final curved = CurvedAnimation(parent: animation, curve: Curves.elasticOut);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 0.4, end: 1).animate(curved),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.all(selected ? 5 : 7),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFFFF3D6) : Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: selected ? 0.35 : 0.22),
+                blurRadius: selected ? 12 : 7,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Color(0xFF2E7D32),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Icon(
+                _iconFor(label),
+                color: Colors.white,
+                size: selected ? 30 : 25,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static IconData _iconFor(String label) {
+    final lower = label.toLowerCase();
+
+    if (lower.contains('apple')) return Icons.apple;
+    if (lower.contains('lemon') ||
+        lower.contains('orange') ||
+        lower.contains('citrus')) {
+      return Icons.circle;
+    }
+    if (lower.contains('olive')) return Icons.eco;
+    if (lower.contains('nut') || lower.contains('almond')) {
+      return Icons.park;
+    }
+
+    return Icons.park;
+  }
+}
+
+class _GlassTipCard extends StatelessWidget {
+  const _GlassTipCard({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white.withValues(alpha: 0.90),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.w800)),
+      ),
+    );
+  }
+}
+
+class _SelectedMarkerCard extends StatelessWidget {
+  const _SelectedMarkerCard({
+    required this.marker,
+    required this.onEdit,
+    required this.onOpenMaps,
+    required this.onClose,
+  });
+
+  final _FruitTreeMarker marker;
+  final VoidCallback onEdit;
+  final VoidCallback onOpenMaps;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 10,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.park_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    marker.type,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                IconButton(onPressed: onClose, icon: const Icon(Icons.close)),
+              ],
+            ),
+            if (marker.notes.trim().isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  marker.notes,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onOpenMaps,
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Open Maps'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FruitTreeMarker {
+  const _FruitTreeMarker({
+    required this.id,
+    required this.type,
+    required this.notes,
+    required this.latitude,
+    required this.longitude,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String type;
+  final String notes;
+  final double latitude;
+  final double longitude;
+  final DateTime createdAt;
+
+  LatLng get position => LatLng(latitude, longitude);
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'type': type,
+      'notes': notes,
+      'latitude': latitude,
+      'longitude': longitude,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
+  factory _FruitTreeMarker.fromJson(Map<String, dynamic> json) {
+    return _FruitTreeMarker(
+      id: json['id'] as String,
+      type: json['type'] as String,
+      notes: (json['notes'] as String?) ?? '',
+      latitude: (json['latitude'] as num).toDouble(),
+      longitude: (json['longitude'] as num).toDouble(),
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+    );
+  }
+}

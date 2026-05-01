@@ -1,0 +1,175 @@
+﻿2875: class _MapView extends StatefulWidget {
+2876:   const _MapView({
+2877:     required this.controller,
+2878:     required this.beds,
+2879:     required this.canvasWidth,
+2880:     required this.canvasHeight,
+2881:     required this.pixelsPerMeter,
+2882:     required this.onOpenBedDetails,
+2883:   });
+2884: 
+2885:   final GardenController controller;
+2886:   final List<Bed> beds;
+2887:   final double canvasWidth;
+2888:   final double canvasHeight;
+2889:   final double pixelsPerMeter;
+2890:   final ValueChanged<Bed> onOpenBedDetails;
+2891: 
+2892:   @override
+2893:   State<_MapView> createState() => _MapViewState();
+2894: }
+2895: 
+2896: class _MapViewState extends State<_MapView> {
+2897:   String? selectedBedId;
+2898:   String? activePlantName;
+2899: 
+2900:   _PathPlacementSettings settings = _PathPlacementSettings.defaults;
+2901: 
+2902:   static const String buildMarker =
+2903:       'fix-all-positional-containers-20260426_120019';
+2904: 
+2905:   Bed? get selectedBed {
+2906:     if (widget.beds.isEmpty) return null;
+2907: 
+2908:     final id = selectedBedId ?? widget.controller.selectedBedId;
+2909: 
+2910:     for (final bed in widget.beds) {
+2911:       if (bed.id == id) return bed;
+2912:     }
+2913: 
+2914:     return widget.beds.first;
+2915:   }
+2916: 
+2917:   @override
+2918:   void initState() {
+2919:     super.initState();
+2920: 
+2921:     if (widget.beds.isNotEmpty) {
+2922:       selectedBedId = widget.controller.selectedBedId ?? widget.beds.first.id;
+2923:       widget.controller.selectBed(selectedBedId!);
+2924:     }
+2925:   }
+2926: 
+2927:   @override
+2928:   void didUpdateWidget(covariant _MapView oldWidget) {
+2929:     super.didUpdateWidget(oldWidget);
+2930: 
+2931:     if (widget.beds.isEmpty) {
+2932:       selectedBedId = null;
+2933:       activePlantName = null;
+2934:       return;
+2935:     }
+2936: 
+2937:     final validSelection = widget.beds.any((bed) => bed.id == selectedBedId);
+2938: 
+2939:     if (!validSelection) {
+2940:       selectedBedId = widget.controller.selectedBedId ?? widget.beds.first.id;
+2941:       widget.controller.selectBed(selectedBedId!);
+2942:       activePlantName = null;
+2943:     }
+2944:   }
+2945: 
+2946:   @override
+2947:   Widget build(BuildContext context) {
+2948:     final bed = selectedBed;
+2949: 
+2950:     return Container(
+2951:       color: GardenTheme.cream,
+2952:       child: Row(
+2953:         children: [
+2954:           SizedBox(
+2955:             width: 342,
+2956:             child: Padding(
+2957:               padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+2958:               child: _FlexiblePlantPanel(
+2959:                 controller: widget.controller,
+2960:                 selectedBed: bed,
+2961:                 activePlantName: activePlantName,
+2962:                 settings: settings,
+2963:                 onPlantChosen: _startPlantPlacement,
+2964:                 onClearPlant: _clearPlantPlacement,
+2965:                 onSettingsChanged: (next) {
+2966:                   setState(() {
+2967:                     settings = next;
+2968:                   });
+2969:                 },
+2970:                 onUseRecommendedSpacing: _useRecommendedSpacing,
+2971:               ),
+2972:             ),
+2973:           ),
+2974:           Expanded(
+2975:             child: Padding(
+2976:               padding: const EdgeInsets.fromLTRB(8, 12, 12, 12),
+2977:               child: bed == null
+2978:                   ? const _FlexibleBedEmptyState()
+2979:                   : _FlexibleBedWorkspace(
+2980:                       marker: buildMarker,
+2981:                       bed: bed,
+2982:                       beds: widget.beds,
+2983:                       controller: widget.controller,
+2984:                       activePlantName: activePlantName,
+2985:                       settings: settings,
+2986:                       onSelectBed: _selectBed,
+2987:                       onOpenDetails: () => widget.onOpenBedDetails(bed),
+2988:                       onClearPlant: _clearPlantPlacement,
+2989:                       onPlantPlaced: _clearPlantPlacement,
+2990:                     ),
+2991:             ),
+2992:           ),
+2993:         ],
+2994:       ),
+2995:     );
+2996:   }
+2997: 
+2998:   void _selectBed(Bed bed) {
+2999:     widget.controller.selectBed(bed.id);
+3000: 
+3001:     setState(() {
+3002:       selectedBedId = bed.id;
+3003:       activePlantName = null;
+3004:     });
+3005:   }
+3006: 
+3007:   void _startPlantPlacement(String cropName) {
+3008:     final bed = selectedBed;
+3009: 
+3010:     if (bed == null) {
+3011:       ScaffoldMessenger.of(context).showSnackBar(
+3012:         const SnackBar(content: Text('Add a bed before placing plants.')),
+3013:       );
+3014:       return;
+3015:     }
+3016: 
+3017:     widget.controller.selectBed(bed.id);
+3018: 
+3019:     setState(() {
+3020:       activePlantName = cropName;
+3021:     });
+3022: 
+3023:     ScaffoldMessenger.of(context).showSnackBar(
+3024:       SnackBar(content: Text('Placing $cropName in ${bed.name}.')),
+3025:     );
+3026:   }
+3027: 
+3028:   void _clearPlantPlacement() {
+3029:     setState(() {
+3030:       activePlantName = null;
+3031:     });
+3032:   }
+3033: 
+3034:   void _useRecommendedSpacing() {
+3035:     final plant = activePlantName;
+3036:     if (plant == null || plant.trim().isEmpty) return;
+3037: 
+3038:     final spacing = realisticSpacingMetersForCrop(plant);
+3039: 
+3040:     setState(() {
+3041:       settings = settings.copyWith(
+3042:         spacingMeters: spacing,
+3043:         rowWidthMeters: math.max(0.08, math.min(spacing, 0.45)),
+3044:         blockSizeMeters: math.max(0.10, math.min(spacing, 0.60)),
+3045:       );
+3046:     });
+3047:   }
+3048: }
+3049: 
