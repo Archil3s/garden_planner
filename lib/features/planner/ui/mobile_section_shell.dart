@@ -402,3 +402,141 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     );
   }
 }
+
+class _FastTabBar extends StatelessWidget {
+  const _FastTabBar({required this.selectedIndex, required this.onSelected});
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  static const _items = [
+    _FastTabItemData(
+      icon: Icons.yard_outlined,
+      selectedIcon: Icons.yard,
+      label: 'Planner',
+    ),
+    _FastTabItemData(
+      icon: Icons.eco_outlined,
+      selectedIcon: Icons.eco,
+      label: 'Plants',
+    ),
+    _FastTabItemData(
+      icon: Icons.brush_outlined,
+      selectedIcon: Icons.brush,
+      label: 'Design',
+    ),
+    _FastTabItemData(
+      icon: Icons.map_outlined,
+      selectedIcon: Icons.map,
+      label: 'Fruit Scout',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return SafeArea(
+      top: false,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
+        ),
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            children: [
+              for (var index = 0; index < _items.length; index++)
+                Expanded(
+                  child: _FastTabItem(
+                    data: _items[index],
+                    selected: selectedIndex == index,
+                    onTap: () => onSelected(index),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FastTabItemData {
+  const _FastTabItemData({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+}
+
+class _FastTabItem extends StatelessWidget {
+  const _FastTabItem({
+    required this.data,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _FastTabItemData data;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final foreground = selected
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onSurfaceVariant;
+    final background = selected
+        ? colorScheme.primaryContainer
+        : Colors.transparent;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: selected ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: background,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  child: Icon(
+                    selected ? data.selectedIcon : data.icon,
+                    color: foreground,
+                    size: 22,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                data.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
