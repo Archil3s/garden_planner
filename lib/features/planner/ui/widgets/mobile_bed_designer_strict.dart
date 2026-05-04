@@ -163,7 +163,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
     return bed.name.trim().isEmpty ? 'Bed ${bed.number}' : bed.name.trim();
   }
 
-  void _replaceBed(Bed updatedBed, {bool trackUndo = true}) {
+  void _replaceBed(
+    Bed updatedBed, {
+    bool trackUndo = true,
+    bool notifyProjectChanged = true,
+  }) {
     final index = controller.beds.indexWhere((bed) => bed.id == updatedBed.id);
     if (index == -1) return;
 
@@ -179,7 +183,9 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
 
     controller.project = controller.project.copyWith(beds: beds);
     controller.selectBed(updatedBed.id);
-    widget.onProjectChanged();
+    if (notifyProjectChanged) {
+      widget.onProjectChanged();
+    }
 
     setState(() {});
   }
@@ -345,10 +351,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       final otherRadius = otherSpacing / 2;
 
       final requiredDistance = radius + otherRadius;
+      final requiredDistanceSquared = requiredDistance * requiredDistance;
       final dx = placement.x - x;
       final dy = placement.y - y;
 
-      if (math.sqrt(dx * dx + dy * dy) < requiredDistance) {
+      if (dx * dx + dy * dy < requiredDistanceSquared) {
         return true;
       }
     }
@@ -379,10 +386,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       final otherRadius = otherSpacing / 2;
 
       final requiredDistance = radius + otherRadius;
+      final requiredDistanceSquared = requiredDistance * requiredDistance;
       final dx = placement.x - x;
       final dy = placement.y - y;
 
-      if (math.sqrt(dx * dx + dy * dy) < requiredDistance) {
+      if (dx * dx + dy * dy < requiredDistanceSquared) {
         return true;
       }
     }
@@ -396,10 +404,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       final otherRadius = otherSpacing / 2;
 
       final requiredDistance = radius + otherRadius;
+      final requiredDistanceSquared = requiredDistance * requiredDistance;
       final dx = block.x - x;
       final dy = block.y - y;
 
-      if (math.sqrt(dx * dx + dy * dy) < requiredDistance) {
+      if (dx * dx + dy * dy < requiredDistanceSquared) {
         return true;
       }
     }
@@ -457,8 +466,14 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
   }
 
   void _handlePointerEnd() {
+    final wasMoving = movingPlacementId != null;
+
     movingPlacementId = null;
     strokeSlots.clear();
+
+    if (wasMoving) {
+      widget.onProjectChanged();
+    }
   }
 
   void _plantAt({
@@ -554,7 +569,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       y: slot.dy,
     );
 
-    _replaceBed(bed.copyWith(cropPlacements: placements), trackUndo: false);
+    _replaceBed(
+      bed.copyWith(cropPlacements: placements),
+      trackUndo: false,
+      notifyProjectChanged: false,
+    );
   }
 
   void _eraseAt({
