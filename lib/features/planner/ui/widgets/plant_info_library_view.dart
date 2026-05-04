@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:garden_planner/core/models/crop_spacing.dart';
 import 'package:garden_planner/core/models/plant_profile_data.dart';
@@ -16,15 +17,24 @@ class PlantInfoLibraryView extends StatefulWidget {
 }
 
 class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
+  static const String _favoritesKey = 'plant_library.favorite_keys';
+  static const String _recentKey = 'plant_library.recent_keys';
+
+  final TextEditingController _searchController = TextEditingController();
+
   String _query = '';
   String _category = 'All';
   String _filter = 'All';
+  String _sort = 'A-Z';
+
+  final Set<String> _favoriteKeys = <String>{};
+  final List<String> _recentKeys = <String>[];
 
   late final List<_PlantEntry> _plants =
       generatedPlantSvgs.keys.map(_entryFromKey).toList()
         ..sort((a, b) => a.name.compareTo(b.name));
 
-  final List<String> _categories = const [
+  static const List<String> _categories = [
     'All',
     'Vegetables',
     'Herbs',
@@ -33,8 +43,10 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
     'Flowers',
   ];
 
-  final List<String> _filters = const [
+  static const List<String> _filters = [
     'All',
+    'Favorites',
+    'Recent',
     'Recommended',
     'Spacing',
     'Containers',
@@ -42,10 +54,52 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
     'Warnings',
   ];
 
+  static const List<String> _sortModes = [
+    'A-Z',
+    'Category',
+    'Favorites first',
+    'Recently used',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalState();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadLocalState() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!mounted) return;
+
+    setState(() {
+      _favoriteKeys
+        ..clear()
+        ..addAll(prefs.getStringList(_favoritesKey) ?? const []);
+
+      _recentKeys
+        ..clear()
+        ..addAll(prefs.getStringList(_recentKey) ?? const []);
+    });
+  }
+
+  Future<void> _saveLocalState() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setStringList(_favoritesKey, _favoriteKeys.toList()..sort());
+    await prefs.setStringList(_recentKey, _recentKeys.take(20).toList());
+  }
+
   List<_PlantEntry> get _visiblePlants {
     final q = _query.trim().toLowerCase();
 
-    return _plants.where((plant) {
+    final visible = _plants.where((plant) {
       final profile = PlantProfileData.forCrop(plant.name);
       final spacing = CropSpacing.spacingLabelForCrop(plant.name);
 
@@ -53,12 +107,17 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
           q.isEmpty ||
           plant.name.toLowerCase().contains(q) ||
           plant.key.toLowerCase().contains(q) ||
-          plant.category.toLowerCase().contains(q);
+          plant.category.toLowerCase().contains(q) ||
+          profile.sun.toLowerCase().contains(q) ||
+          profile.water.toLowerCase().contains(q) ||
+          profile.soil.toLowerCase().contains(q);
 
       final matchesCategory = _category == 'All' || plant.category == _category;
 
       final matchesFilter = switch (_filter) {
         'All' => true,
+        'Favorites' => _favoriteKeys.contains(plant.key),
+        'Recent' => _recentKeys.contains(plant.key),
         'Recommended' => profile.recommendedLayout.trim().isNotEmpty,
         'Spacing' => spacing.trim().isNotEmpty,
         'Containers' => profile.container.trim().isNotEmpty,
@@ -69,6 +128,59 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
 
       return matchesQuery && matchesCategory && matchesFilter;
     }).toList();
+
+    visible.sort((a, b) {
+      return switch (_sort) {
+        'Category' => _categoryThenName(a, b),
+        'Favorites first' => _favoriteThenName(a, b),
+        'Recently used' => _recentThenName(a, b),
+        _ => a.name.compareTo(b.name),
+      };
+    });
+
+    return visible;
+  }
+
+  int _categoryThenName(_PlantEntry a, _PlantEntry b) {
+    final category = a.category.compareTo(b.category);
+    if (category != 0) return category;
+    return a.name.compareTo(b.name);
+  }
+
+  int _favoriteThenName(_PlantEntry a, _PlantEntry b) {
+    final af = _favoriteKeys.contains(a.key);
+    final bf = _favoriteKeys.contains(b.key);
+
+    if (af != bf) return af ? -1 : 1;
+    return a.name.compareTo(b.name);
+  }
+
+  int _recentThenName(_PlantEntry a, _PlantEntry b) {
+    final ai = _recentKeys.indexOf(a.key);
+    final bi = _recentKeys.indexOf(b.key);
+
+    if (ai == -1 && bi == -1) return a.name.compareTo(b.name);
+    if (ai == -1) return 1;
+    if (bi == -1) return -1;
+
+    return ai.compareTo(bi);
+  }
+
+  int get _warningCount {
+    return _plants
+        .where(
+          (plant) => PlantProfileData.forCrop(plant.name).warnings.isNotEmpty,
+        )
+        .length;
+  }
+
+  int get _containerCount {
+    return _plants
+        .where(
+          (plant) =>
+              PlantProfileData.forCrop(plant.name).container.trim().isNotEmpty,
+        )
+        .length;
   }
 
   _PlantEntry _entryFromKey(String key) {
@@ -157,8 +269,35 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
         .join(' ');
   }
 
-  void _usePlant(_PlantEntry plant) {
+  Future<void> _toggleFavorite(_PlantEntry plant) async {
+    setState(() {
+      if (_favoriteKeys.contains(plant.key)) {
+        _favoriteKeys.remove(plant.key);
+      } else {
+        _favoriteKeys.add(plant.key);
+      }
+    });
+
+    await _saveLocalState();
+  }
+
+  Future<void> _markRecent(_PlantEntry plant) async {
+    setState(() {
+      _recentKeys.remove(plant.key);
+      _recentKeys.insert(0, plant.key);
+
+      if (_recentKeys.length > 20) {
+        _recentKeys.removeRange(20, _recentKeys.length);
+      }
+    });
+
+    await _saveLocalState();
+  }
+
+  Future<void> _usePlant(_PlantEntry plant) async {
     final cropName = plant.name.trim().isEmpty ? plant.key : plant.name;
+
+    await _markRecent(plant);
 
     if (widget.onPlantChosen != null) {
       widget.onPlantChosen!(cropName);
@@ -167,10 +306,12 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
 
     PlantingSelectionBridge.selectPlant(cropName);
 
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$cropName selected. Open the planner/map to place it.'),
-        duration: const Duration(seconds: 2),
+        duration: const Duration(milliseconds: 1200),
       ),
     );
   }
@@ -178,6 +319,7 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
   void _openPlantDetails(_PlantEntry plant) {
     final profile = PlantProfileData.forCrop(plant.name);
     final spacing = CropSpacing.spacingLabelForCrop(plant.name);
+    final isFavorite = _favoriteKeys.contains(plant.key);
 
     showModalBottomSheet<void>(
       context: context,
@@ -187,7 +329,7 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
       builder: (context) {
         return DraggableScrollableSheet(
           expand: false,
-          initialChildSize: 0.82,
+          initialChildSize: 0.84,
           minChildSize: 0.42,
           maxChildSize: 0.96,
           builder: (context, scrollController) {
@@ -221,14 +363,42 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
+                const SizedBox(height: 14),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _MiniInfoChip(label: spacing),
+                    _MiniInfoChip(label: profile.sun),
+                    _MiniInfoChip(label: profile.water),
+                    if (profile.warnings.isNotEmpty)
+                      const _MiniInfoChip(label: 'Has warnings'),
+                  ],
+                ),
                 const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    _usePlant(plant);
-                  },
-                  icon: const Icon(Icons.add_location_alt_outlined),
-                  label: const Text('Use on map / bed'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _usePlant(plant);
+                        },
+                        icon: const Icon(Icons.add_location_alt_outlined),
+                        label: const Text('Use on map / bed'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton.outlined(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _toggleFavorite(plant);
+                      },
+                      icon: Icon(isFavorite ? Icons.star : Icons.star_border),
+                      tooltip: isFavorite ? 'Remove favorite' : 'Favorite',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
                 _InfoSection(
@@ -261,6 +431,17 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
     );
   }
 
+  void _resetFilters() {
+    _searchController.clear();
+
+    setState(() {
+      _query = '';
+      _category = 'All';
+      _filter = 'All';
+      _sort = 'A-Z';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final visible = _visiblePlants;
@@ -278,6 +459,10 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
                 child: _HeaderCard(
                   visibleCount: visible.length,
                   totalCount: _plants.length,
+                  favoriteCount: _favoriteKeys.length,
+                  recentCount: _recentKeys.length,
+                  warningCount: _warningCount,
+                  containerCount: _containerCount,
                 ),
               ),
             ),
@@ -285,9 +470,19 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                 child: TextField(
+                  controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: 'Search plants',
+                    hintText: 'Search plants, sun, soil, water...',
                     prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _query = '');
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
                     filled: true,
                     fillColor: Colors.white,
                     contentPadding: const EdgeInsets.symmetric(
@@ -311,11 +506,7 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
                 label: 'Category',
                 values: _categories,
                 selected: _category,
-                onSelected: (value) {
-                  setState(() {
-                    _category = value;
-                  });
-                },
+                onSelected: (value) => setState(() => _category = value),
               ),
             ),
             SliverToBoxAdapter(
@@ -323,26 +514,42 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
                 label: 'Filter',
                 values: _filters,
                 selected: _filter,
-                onSelected: (value) {
-                  setState(() {
-                    _filter = value;
-                  });
-                },
+                onSelected: (value) => setState(() => _filter = value),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _ChipScroller(
+                label: 'Sort',
+                values: _sortModes,
+                selected: _sort,
+                onSelected: (value) => setState(() => _sort = value),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${visible.length} plants shown',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: _resetFilters,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Reset'),
+                    ),
+                  ],
+                ),
               ),
             ),
             if (visible.isEmpty)
-              SliverFillRemaining(
+              const SliverFillRemaining(
                 hasScrollBody: false,
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'No plants match the current filters.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                ),
+                child: _EmptyPlantState(),
               )
             else
               SliverPadding(
@@ -352,19 +559,24 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
                     final width = constraints.crossAxisExtent;
 
                     if (width < 430) {
-                      return SliverList.separated(
-                        itemCount: visible.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
+                      return SliverList(
+                        delegate: SliverChildBuilderDelegate((context, index) {
                           final plant = visible[index];
 
-                          return _PlantListCard(
-                            plant: plant,
-                            onTap: () => _openPlantDetails(plant),
-                            onUse: () => _usePlant(plant),
+                          return Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == visible.length - 1 ? 0 : 12,
+                            ),
+                            child: _PlantListCard(
+                              plant: plant,
+                              favorite: _favoriteKeys.contains(plant.key),
+                              recent: _recentKeys.contains(plant.key),
+                              onTap: () => _openPlantDetails(plant),
+                              onUse: () => _usePlant(plant),
+                              onFavorite: () => _toggleFavorite(plant),
+                            ),
                           );
-                        },
+                        }, childCount: visible.length),
                       );
                     }
 
@@ -380,15 +592,18 @@ class _PlantInfoLibraryViewState extends State<PlantInfoLibraryView> {
 
                         return _PlantGridCard(
                           plant: plant,
+                          favorite: _favoriteKeys.contains(plant.key),
+                          recent: _recentKeys.contains(plant.key),
                           onTap: () => _openPlantDetails(plant),
                           onUse: () => _usePlant(plant),
+                          onFavorite: () => _toggleFavorite(plant),
                         );
                       }, childCount: visible.length),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: columns,
                         mainAxisSpacing: 12,
                         crossAxisSpacing: 12,
-                        mainAxisExtent: 244,
+                        mainAxisExtent: 252,
                       ),
                     );
                   },
@@ -414,10 +629,21 @@ class _PlantEntry {
 }
 
 class _HeaderCard extends StatelessWidget {
-  const _HeaderCard({required this.visibleCount, required this.totalCount});
+  const _HeaderCard({
+    required this.visibleCount,
+    required this.totalCount,
+    required this.favoriteCount,
+    required this.recentCount,
+    required this.warningCount,
+    required this.containerCount,
+  });
 
   final int visibleCount;
   final int totalCount;
+  final int favoriteCount;
+  final int recentCount;
+  final int warningCount;
+  final int containerCount;
 
   @override
   Widget build(BuildContext context) {
@@ -427,44 +653,45 @@ class _HeaderCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const CircleAvatar(
-              radius: 24,
-              backgroundColor: Color(0xFFDCEFE0),
-              child: Icon(Icons.eco, color: Color(0xFF2E7D32)),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Plant Info',
+            Row(
+              children: [
+                const CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Color(0xFFDCEFE0),
+                  child: Icon(Icons.eco, color: Color(0xFF2E7D32)),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Plant Library Pro',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$visibleCount shown • $totalCount plants',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  const Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      _SmallChip(label: 'Mobile'),
-                      _SmallChip(label: 'Search'),
-                      _SmallChip(label: 'Bottom sheet'),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '$visibleCount shown from $totalCount plants',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _SmallChip(label: '$favoriteCount favorites'),
+                _SmallChip(label: '$recentCount recent'),
+                _SmallChip(label: '$warningCount warnings'),
+                _SmallChip(label: '$containerCount containers'),
+              ],
             ),
           ],
         ),
@@ -486,6 +713,26 @@ class _SmallChip extends StatelessWidget {
       label: Text(
         label,
         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+}
+
+class _MiniInfoChip extends StatelessWidget {
+  const _MiniInfoChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final clean = label.trim().isEmpty ? 'Not specified' : label.trim();
+
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      label: Text(
+        clean,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -544,13 +791,19 @@ class _ChipScroller extends StatelessWidget {
 class _PlantListCard extends StatelessWidget {
   const _PlantListCard({
     required this.plant,
+    required this.favorite,
+    required this.recent,
     required this.onTap,
     required this.onUse,
+    required this.onFavorite,
   });
 
   final _PlantEntry plant;
+  final bool favorite;
+  final bool recent;
   final VoidCallback onTap;
   final VoidCallback onUse;
+  final VoidCallback onFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -582,53 +835,18 @@ class _PlantListCard extends StatelessWidget {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      plant.name.toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      plant.category,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      spacing,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.tonal(
-                            onPressed: onUse,
-                            child: const FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text('Use on map'),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.outlined(
-                          onPressed: onTap,
-                          icon: const Icon(Icons.info_outline),
-                          tooltip: 'Details',
-                        ),
-                      ],
-                    ),
-                  ],
+                child: _PlantCardText(
+                  plant: plant,
+                  spacing: spacing,
+                  favorite: favorite,
+                  recent: recent,
+                  onUse: onUse,
                 ),
+              ),
+              IconButton(
+                onPressed: onFavorite,
+                icon: Icon(favorite ? Icons.star : Icons.star_border),
+                tooltip: favorite ? 'Remove favorite' : 'Favorite',
               ),
             ],
           ),
@@ -641,13 +859,19 @@ class _PlantListCard extends StatelessWidget {
 class _PlantGridCard extends StatelessWidget {
   const _PlantGridCard({
     required this.plant,
+    required this.favorite,
+    required this.recent,
     required this.onTap,
     required this.onUse,
+    required this.onFavorite,
   });
 
   final _PlantEntry plant;
+  final bool favorite;
+  final bool recent;
   final VoidCallback onTap;
   final VoidCallback onUse;
+  final VoidCallback onFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -667,57 +891,143 @@ class _PlantGridCard extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Column(
             children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onFavorite,
+                  icon: Icon(favorite ? Icons.star : Icons.star_border),
+                  tooltip: favorite ? 'Remove favorite' : 'Favorite',
+                ),
+              ),
               Container(
-                width: 74,
-                height: 74,
+                width: 70,
+                height: 70,
                 alignment: Alignment.center,
                 decoration: const BoxDecoration(
                   color: Color(0xFFF1EAE1),
                   shape: BoxShape.circle,
                 ),
-                child: GeneratedPlantIcon(cropName: plant.key, size: 50),
+                child: GeneratedPlantIcon(cropName: plant.key, size: 48),
               ),
-              const SizedBox(height: 10),
-              Text(
-                plant.name.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 13,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                plant.category,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                spacing,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 11),
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonal(
-                  onPressed: onUse,
-                  child: const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text('Use on map'),
-                  ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: _PlantCardText(
+                  plant: plant,
+                  spacing: spacing,
+                  favorite: favorite,
+                  recent: recent,
+                  onUse: onUse,
+                  centered: true,
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlantCardText extends StatelessWidget {
+  const _PlantCardText({
+    required this.plant,
+    required this.spacing,
+    required this.favorite,
+    required this.recent,
+    required this.onUse,
+    this.centered = false,
+  });
+
+  final _PlantEntry plant;
+  final String spacing;
+  final bool favorite;
+  final bool recent;
+  final VoidCallback onUse;
+  final bool centered;
+
+  @override
+  Widget build(BuildContext context) {
+    final align = centered ? TextAlign.center : TextAlign.start;
+
+    return Column(
+      mainAxisAlignment: centered
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.start,
+      crossAxisAlignment: centered
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          plant.name.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: align,
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 13,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          plant.category,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: align,
+          style: const TextStyle(fontSize: 12),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          spacing,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: align,
+          style: const TextStyle(fontSize: 11),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          alignment: centered ? WrapAlignment.center : WrapAlignment.start,
+          spacing: 4,
+          runSpacing: 4,
+          children: [
+            if (favorite) const _TinyTag(label: 'Favorite'),
+            if (recent) const _TinyTag(label: 'Recent'),
+          ],
+        ),
+        const Spacer(),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.tonal(
+            onPressed: onUse,
+            child: const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('Use on map'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TinyTag extends StatelessWidget {
+  const _TinyTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
         ),
       ),
     );
@@ -778,6 +1088,24 @@ class _InfoRow extends StatelessWidget {
             child: Text(cleanValue, style: const TextStyle(fontSize: 12)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyPlantState extends StatelessWidget {
+  const _EmptyPlantState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'No plants match the current filters.',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
       ),
     );
   }
