@@ -67,6 +67,8 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
 
   Future<void> _bootstrapAndOpen(int index) async {
     if (controller != null) {
+      if (selectedIndex == index && openedTabs.contains(index)) return;
+
       setState(() {
         selectedIndex = index;
         openedTabs.add(index);
@@ -74,15 +76,19 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
       return;
     }
 
-    if (bootstrapping) return;
+    if (bootstrapping) {
+      setState(() {
+        selectedIndex = index;
+        openedTabs.add(index);
+      });
+      return;
+    }
 
     setState(() {
       bootstrapping = true;
       selectedIndex = index;
+      openedTabs.add(index);
     });
-
-    // Let Android draw the first frame before creating/loading the project.
-    await Future<void>.delayed(const Duration(milliseconds: 250));
 
     final nextController = GardenController();
     nextController.addListener(_controllerChanged);
@@ -183,7 +189,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
       selectedPlantName = cleanName;
     });
 
-    _bootstrapAndOpen(2);
+    unawaited(_bootstrapAndOpen(2));
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -290,7 +296,8 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
             index: selectedIndex,
             children: List<Widget>.generate(
               4,
-              (index) => _buildPage(index, activeController),
+              (index) =>
+                  RepaintBoundary(child: _buildPage(index, activeController)),
             ),
           );
 
@@ -331,8 +338,11 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
       ),
       body: SafeArea(child: body),
       bottomNavigationBar: NavigationBar(
+        animationDuration: const Duration(milliseconds: 120),
         selectedIndex: selectedIndex,
-        onDestinationSelected: _bootstrapAndOpen,
+        onDestinationSelected: (index) {
+          unawaited(_bootstrapAndOpen(index));
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.yard_outlined),
