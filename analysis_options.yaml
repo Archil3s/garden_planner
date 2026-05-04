@@ -1,9 +1,11 @@
 ﻿analyzer:
   exclude:
     - backups/**
+    - local_backups/**
     - debug_output/**
     - lib/screens/**
     - lib/models/**
     - lib/services/**
     - lib/utils/**
     - test/**
+

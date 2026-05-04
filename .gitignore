@@ -177,3 +177,7 @@ GoogleService-Info.plist
 # Keep organized scripts allowed
 !/tools/
 !/tools/scripts/
+
+# Local generated backups
+local_backups/
+*.bak

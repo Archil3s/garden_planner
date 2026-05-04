@@ -1042,11 +1042,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
     return slots;
   }
 
-  int _slotCapacityForPlant({required Bed bed, required String cropName}) {
+) {
     return _candidateSlotsForPlant(bed: bed, cropName: cropName).length;
   }
 
-  int _usedSlotCountForPlant({required Bed bed, required String cropName}) {
+) {
     final target = cropName.trim().toLowerCase();
     if (target.isEmpty) return 0;
 
@@ -1202,17 +1202,7 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
     );
   }
 
-  void _autoFillSelectedBed() {
-    final bed = activeBed;
-    if (bed == null) return;
-
-    _addSlotsToBed(
-      label: 'Auto-fill',
-      slots: _candidateSlotsForPlant(bed: bed, cropName: activePlant),
-    );
-  }
-
-  void _fillBorderWithSelectedPlant() {
+void _fillBorderWithSelectedPlant() {
     final bed = activeBed;
     if (bed == null) return;
 
@@ -1269,50 +1259,7 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
     _addSlotsToBed(label: 'Center row', slots: rowSlots);
   }
 
-  void _clearActivePlantFromBed() {
-    final bed = activeBed;
-    if (bed == null || !hasPlant) {
-      widget.onPickPlant();
-      return;
-    }
-
-    final target = activePlant.toLowerCase();
-
-    final updatedPlacements = bed.cropPlacements
-        .where((placement) => placement.cropName.trim().toLowerCase() != target)
-        .toList();
-
-    final updatedBlocks = bed.cropBlocks
-        .where((block) => block.cropName.trim().toLowerCase() != target)
-        .toList();
-
-    final updatedCrops = bed.crops
-        .where((crop) => crop.trim().toLowerCase() != target)
-        .toList();
-
-    if (updatedPlacements.length == bed.cropPlacements.length &&
-        updatedBlocks.length == bed.cropBlocks.length &&
-        updatedCrops.length == bed.crops.length) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No $activePlant found in this bed.')),
-      );
-      return;
-    }
-
-    _replaceBed(
-      bed.copyWith(
-        crops: updatedCrops,
-        cropPlacements: updatedPlacements,
-        cropBlocks: updatedBlocks,
-      ),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Removed $activePlant from this bed.')),
-    );
-  }
-
-  void _openDesignStudio(Bed bed) {
+void _openDesignStudio(Bed bed) {
     final cropName = activePlant;
     final hasActivePlant = cropName.isNotEmpty;
     final capacity = hasActivePlant
