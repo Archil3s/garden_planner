@@ -279,6 +279,7 @@ class _PlantCard extends StatelessWidget {
                     Text(
                       plant.subtitle,
                       textAlign: TextAlign.center,
+
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12),

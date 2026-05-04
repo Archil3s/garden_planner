@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -123,10 +123,8 @@ class _FruitTreeMapViewState extends State<FruitTreeMapView> {
     super.initState();
     _loadEntries();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _refreshLocation();
-    });
+    // Disabled during Android startup.
+    // GPS should be requested only after the user opens/uses Fruit Scout.
   }
 
   @override
@@ -684,7 +682,7 @@ class _FruitTreeMapViewState extends State<FruitTreeMapView> {
         ? 'GPS unavailable'
         : currentPoint == null
         ? '${entries.length} saved trees'
-        : '${entries.length} saved trees Ã¢â‚¬Â¢ nearby first';
+        : '${entries.length} saved trees ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ nearby first';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F2EA),
@@ -1327,7 +1325,7 @@ class _SeasonHint extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '$status • Harvest: $window',
+                '$status â€¢ Harvest: $window',
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
@@ -1547,7 +1545,7 @@ class _CoordinateBox extends StatelessWidget {
               child: Text(
                 hasGps
                     ? '${latitude!.toStringAsFixed(6)}, ${longitude!.toStringAsFixed(6)}\n'
-                          'Accuracy: Ã‚Â±${(accuracyMeters ?? 0).round()}m'
+                          'Accuracy: Ãƒâ€šÃ‚Â±${(accuracyMeters ?? 0).round()}m'
                     : 'No GPS fix yet. Tap Refresh GPS.',
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
@@ -1656,7 +1654,7 @@ class _FruitEntryCard extends StatelessWidget {
                 ),
                 Chip(
                   visualDensity: VisualDensity.compact,
-                  label: Text('Ã‚Â±${entry.accuracyMeters.round()}m'),
+                  label: Text('Ãƒâ€šÃ‚Â±${entry.accuracyMeters.round()}m'),
                 ),
                 if (entry.needsRevisit)
                   const Chip(
@@ -1868,27 +1866,27 @@ class _HarvestInfo {
 _HarvestInfo _harvestInfoForFruit(String type) {
   final key = type.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
-  const citrus = _HarvestInfo(months: [6, 7, 8], label: 'Winter / Jun–Aug');
+  const citrus = _HarvestInfo(months: [6, 7, 8], label: 'Winter / Junâ€“Aug');
 
   return switch (key) {
     'apple' ||
-    'crabapple' => const _HarvestInfo(months: [2, 3, 4], label: 'Feb–Apr'),
+    'crabapple' => const _HarvestInfo(months: [2, 3, 4], label: 'Febâ€“Apr'),
     'pear' ||
-    'asianpear' => const _HarvestInfo(months: [2, 3, 4], label: 'Feb–Apr'),
-    'quince' => const _HarvestInfo(months: [3, 4, 5], label: 'Mar–May'),
+    'asianpear' => const _HarvestInfo(months: [2, 3, 4], label: 'Febâ€“Apr'),
+    'quince' => const _HarvestInfo(months: [3, 4, 5], label: 'Marâ€“May'),
 
     'peach' ||
     'nectarine' ||
-    'plum' => const _HarvestInfo(months: [12, 1, 2, 3], label: 'Dec–Mar'),
-    'apricot' => const _HarvestInfo(months: [12, 1, 2], label: 'Dec–Feb'),
-    'cherry' => const _HarvestInfo(months: [11, 12, 1], label: 'Nov–Jan'),
-    'damson' => const _HarvestInfo(months: [2, 3, 4], label: 'Feb–Apr'),
+    'plum' => const _HarvestInfo(months: [12, 1, 2, 3], label: 'Decâ€“Mar'),
+    'apricot' => const _HarvestInfo(months: [12, 1, 2], label: 'Decâ€“Feb'),
+    'cherry' => const _HarvestInfo(months: [11, 12, 1], label: 'Novâ€“Jan'),
+    'damson' => const _HarvestInfo(months: [2, 3, 4], label: 'Febâ€“Apr'),
 
-    'fig' => const _HarvestInfo(months: [1, 2, 3], label: 'Jan–Mar'),
-    'mulberry' => const _HarvestInfo(months: [11, 12, 1], label: 'Nov–Jan'),
-    'persimmon' => const _HarvestInfo(months: [4, 5, 6], label: 'Apr–Jun'),
-    'pomegranate' => const _HarvestInfo(months: [3, 4, 5], label: 'Mar–May'),
-    'olive' => const _HarvestInfo(months: [4, 5, 6], label: 'Apr–Jun'),
+    'fig' => const _HarvestInfo(months: [1, 2, 3], label: 'Janâ€“Mar'),
+    'mulberry' => const _HarvestInfo(months: [11, 12, 1], label: 'Novâ€“Jan'),
+    'persimmon' => const _HarvestInfo(months: [4, 5, 6], label: 'Aprâ€“Jun'),
+    'pomegranate' => const _HarvestInfo(months: [3, 4, 5], label: 'Marâ€“May'),
+    'olive' => const _HarvestInfo(months: [4, 5, 6], label: 'Aprâ€“Jun'),
 
     'lemon' ||
     'lime' ||
@@ -1899,52 +1897,52 @@ _HarvestInfo _harvestInfoForFruit(String type) {
     'kumquat' ||
     'yuzu' => citrus,
 
-    'grape' => const _HarvestInfo(months: [2, 3, 4], label: 'Feb–Apr'),
-    'kiwi' => const _HarvestInfo(months: [4, 5, 6], label: 'Apr–Jun'),
+    'grape' => const _HarvestInfo(months: [2, 3, 4], label: 'Febâ€“Apr'),
+    'kiwi' => const _HarvestInfo(months: [4, 5, 6], label: 'Aprâ€“Jun'),
     'passionfruit' => const _HarvestInfo(
       months: [1, 2, 3, 4],
-      label: 'Jan–Apr',
+      label: 'Janâ€“Apr',
     ),
 
-    'blueberry' => const _HarvestInfo(months: [12, 1, 2], label: 'Dec–Feb'),
+    'blueberry' => const _HarvestInfo(months: [12, 1, 2], label: 'Decâ€“Feb'),
     'blackberry' ||
-    'raspberry' => const _HarvestInfo(months: [12, 1, 2, 3], label: 'Dec–Mar'),
+    'raspberry' => const _HarvestInfo(months: [12, 1, 2, 3], label: 'Decâ€“Mar'),
     'boysenberry' ||
     'gooseberry' ||
-    'currant' => const _HarvestInfo(months: [11, 12, 1], label: 'Nov–Jan'),
-    'elderberry' => const _HarvestInfo(months: [1, 2, 3], label: 'Jan–Mar'),
+    'currant' => const _HarvestInfo(months: [11, 12, 1], label: 'Novâ€“Jan'),
+    'elderberry' => const _HarvestInfo(months: [1, 2, 3], label: 'Janâ€“Mar'),
     'strawberry' => const _HarvestInfo(
       months: [10, 11, 12, 1, 2, 3, 4],
-      label: 'Oct–Apr',
+      label: 'Octâ€“Apr',
     ),
 
-    'feijoa' => const _HarvestInfo(months: [3, 4, 5, 6], label: 'Mar–Jun'),
-    'guava' => const _HarvestInfo(months: [3, 4, 5, 6], label: 'Mar–Jun'),
-    'loquat' => const _HarvestInfo(months: [9, 10, 11], label: 'Sep–Nov'),
+    'feijoa' => const _HarvestInfo(months: [3, 4, 5, 6], label: 'Marâ€“Jun'),
+    'guava' => const _HarvestInfo(months: [3, 4, 5, 6], label: 'Marâ€“Jun'),
+    'loquat' => const _HarvestInfo(months: [9, 10, 11], label: 'Sepâ€“Nov'),
     'avocado' => const _HarvestInfo(
       months: [8, 9, 10, 11, 12, 1, 2, 3],
-      label: 'Aug–Mar',
+      label: 'Augâ€“Mar',
     ),
     'banana' || 'papaya' => const _HarvestInfo(
       months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       label: 'Year-round',
     ),
-    'mango' => const _HarvestInfo(months: [1, 2, 3], label: 'Jan–Mar'),
-    'pawpaw' => const _HarvestInfo(months: [2, 3, 4], label: 'Feb–Apr'),
-    'lychee' => const _HarvestInfo(months: [1, 2], label: 'Jan–Feb'),
+    'mango' => const _HarvestInfo(months: [1, 2, 3], label: 'Janâ€“Mar'),
+    'pawpaw' => const _HarvestInfo(months: [2, 3, 4], label: 'Febâ€“Apr'),
+    'lychee' => const _HarvestInfo(months: [1, 2], label: 'Janâ€“Feb'),
     'cherimoya' => const _HarvestInfo(
       months: [5, 6, 7, 8, 9],
-      label: 'May–Sep',
+      label: 'Mayâ€“Sep',
     ),
 
     'almond' ||
     'hazelnut' ||
-    'chestnut' => const _HarvestInfo(months: [3, 4], label: 'Mar–Apr'),
-    'walnut' => const _HarvestInfo(months: [3, 4, 5], label: 'Mar–May'),
-    'pecan' => const _HarvestInfo(months: [4, 5], label: 'Apr–May'),
+    'chestnut' => const _HarvestInfo(months: [3, 4], label: 'Marâ€“Apr'),
+    'walnut' => const _HarvestInfo(months: [3, 4, 5], label: 'Marâ€“May'),
+    'pecan' => const _HarvestInfo(months: [4, 5], label: 'Aprâ€“May'),
     'macadamia' => const _HarvestInfo(
       months: [3, 4, 5, 6, 7, 8],
-      label: 'Mar–Aug',
+      label: 'Marâ€“Aug',
     ),
 
     _ => const _HarvestInfo(months: [], label: 'Season unknown'),
@@ -2023,3 +2021,4 @@ double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
 double _degreesToRadians(double degrees) {
   return degrees * math.pi / 180.0;
 }
+

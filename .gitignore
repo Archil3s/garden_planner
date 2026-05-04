@@ -49,3 +49,9 @@ app.*.map.json
 *.mobile_backup
 *_context_*.zip
 *_backups_*
+
+# Local backup files
+*.autosave_backup_*
+*.fast_start_backup_*
+*.lazy_tabs_backup_*
+*.low_jank_backup_*

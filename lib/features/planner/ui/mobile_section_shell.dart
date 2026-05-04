@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:garden_planner/features/planner/controller/garden_controller.dart';
@@ -16,29 +18,33 @@ class MobileSectionShell extends StatefulWidget {
 }
 
 class _MobileSectionShellState extends State<MobileSectionShell> {
-  final GardenController controller = GardenController();
   final ProjectStorageService storage = ProjectStorageService();
 
-  int selectedIndex = 0;
+  GardenController? controller;
+
+  int selectedIndex = 2;
+  bool bootstrapping = false;
   bool saving = false;
+
+  Timer? autosaveTimer;
+
+  final Set<int> openedTabs = <int>{};
+
   String? selectedPlantName;
-  String statusMessage = 'Mobile bed designer ready.';
+  String statusMessage = 'Ready.';
 
   @override
   void initState() {
     super.initState();
-
-    controller.addListener(_controllerChanged);
     PlantingSelectionBridge.pendingPlant.addListener(_syncPendingPlant);
-
-    Future.microtask(_loadSavedProject);
   }
 
   @override
   void dispose() {
+    autosaveTimer?.cancel();
     PlantingSelectionBridge.pendingPlant.removeListener(_syncPendingPlant);
-    controller.removeListener(_controllerChanged);
-    controller.dispose();
+    controller?.removeListener(_controllerChanged);
+    controller?.dispose();
     super.dispose();
   }
 
@@ -59,57 +65,95 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     });
   }
 
-  Future<void> _loadSavedProject() async {
+  Future<void> _bootstrapAndOpen(int index) async {
+    if (controller != null) {
+      setState(() {
+        selectedIndex = index;
+        openedTabs.add(index);
+      });
+      return;
+    }
+
+    if (bootstrapping) return;
+
+    setState(() {
+      bootstrapping = true;
+      selectedIndex = index;
+    });
+
+    // Let Android draw the first frame before creating/loading the project.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    final nextController = GardenController();
+    nextController.addListener(_controllerChanged);
+
+    controller = nextController;
+
     try {
       final saved = await storage.loadProject().timeout(
-        const Duration(seconds: 3),
+        const Duration(seconds: 2),
         onTimeout: () => null,
       );
 
       if (saved != null) {
-        controller.project = saved;
+        nextController.project = saved;
         statusMessage = 'Saved project loaded.';
       } else {
         statusMessage = 'Demo project loaded.';
       }
 
-      if (controller.selectedBed == null && controller.beds.isNotEmpty) {
-        controller.selectBed(controller.beds.first.id);
+      if (nextController.selectedBed == null &&
+          nextController.beds.isNotEmpty) {
+        nextController.selectBed(nextController.beds.first.id);
       }
     } catch (_) {
-      statusMessage = 'Saved project could not load. Demo project is active.';
+      statusMessage = 'Demo project loaded. Saved project skipped.';
 
-      if (controller.selectedBed == null && controller.beds.isNotEmpty) {
-        controller.selectBed(controller.beds.first.id);
+      if (nextController.selectedBed == null &&
+          nextController.beds.isNotEmpty) {
+        nextController.selectBed(nextController.beds.first.id);
       }
     }
 
-    if (mounted) {
-      setState(() {});
-    }
+    if (!mounted) return;
+
+    setState(() {
+      bootstrapping = false;
+      selectedIndex = index;
+      openedTabs.add(index);
+    });
   }
 
-  Future<void> _saveProject() async {
-    if (saving) return;
+  Future<void> _saveProject({bool showSnackBar = true}) async {
+    final activeController = controller;
+    if (activeController == null || saving) return;
 
     setState(() {
       saving = true;
     });
 
     try {
-      await storage.saveProject(controller.project);
+      await storage.saveProject(activeController.project);
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Garden project saved.')));
+      if (showSnackBar) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Garden project saved.')));
+      } else {
+        statusMessage = 'Autosaved.';
+      }
     } catch (error) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Save failed: $error')));
+      if (showSnackBar) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $error')));
+      } else {
+        statusMessage = 'Autosave failed.';
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -119,9 +163,10 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     }
   }
 
-  void _setTab(int index) {
-    setState(() {
-      selectedIndex = index;
+  void _scheduleAutosave() {
+    autosaveTimer?.cancel();
+    autosaveTimer = Timer(const Duration(milliseconds: 1200), () {
+      _saveProject(showSnackBar: false);
     });
   }
 
@@ -136,8 +181,9 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
 
     setState(() {
       selectedPlantName = cleanName;
-      selectedIndex = 2;
     });
+
+    _bootstrapAndOpen(2);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -157,64 +203,136 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     };
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pages = <Widget>[
-      const GardenScreen(),
-      PlantInfoLibraryView(onPlantChosen: _choosePlant),
-      MobileBedDesigner(
-        controller: controller,
-        selectedPlantName: selectedPlantName,
-        onPickPlant: () => _setTab(1),
-        onSave: _saveProject,
-      ),
-      const FruitTreeMapView(),
-    ];
+  Widget _buildPage(int index, GardenController activeController) {
+    if (!openedTabs.contains(index)) {
+      return const SizedBox.shrink();
+    }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F2EA),
-      appBar: selectedIndex == 0
-          ? null
-          : AppBar(
-              title: Text(title),
-              centerTitle: false,
-              backgroundColor: const Color(0xFFF7F2EA),
-              surfaceTintColor: Colors.transparent,
-              actions: [
-                if (selectedPlantName != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Center(
-                      child: Chip(
-                        visualDensity: VisualDensity.compact,
-                        label: Text(
-                          selectedPlantName!,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
+    return switch (index) {
+      0 => const GardenScreen(),
+      1 => PlantInfoLibraryView(onPlantChosen: _choosePlant),
+      2 => MobileBedDesigner(
+        controller: activeController,
+        selectedPlantName: selectedPlantName,
+        onPickPlant: () => _bootstrapAndOpen(1),
+        onProjectChanged: _scheduleAutosave,
+        onSave: () => _saveProject(),
+      ),
+      3 => const FruitTreeMapView(),
+      _ => const SizedBox.shrink(),
+    };
+  }
+
+  Widget _startupBody() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            elevation: 0,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Garden Planner',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
                   ),
-                if (selectedIndex == 2)
-                  IconButton(
-                    tooltip: 'Save',
-                    onPressed: saving ? null : _saveProject,
-                    icon: saving
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Open only the section you need. This keeps Android startup light.',
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: bootstrapping
+                        ? null
+                        : () => _bootstrapAndOpen(2),
+                    icon: bootstrapping
                         ? const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.save_outlined),
+                        : const Icon(Icons.brush_outlined),
+                    label: const Text('Open Bed Designer'),
                   ),
-              ],
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: bootstrapping
+                        ? null
+                        : () => _bootstrapAndOpen(1),
+                    icon: const Icon(Icons.eco_outlined),
+                    label: const Text('Open Plants'),
+                  ),
+                ],
+              ),
             ),
-      body: SafeArea(
-        top: selectedIndex != 0,
-        child: IndexedStack(index: selectedIndex, children: pages),
+          ),
+        ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeController = controller;
+
+    final body = activeController == null
+        ? _startupBody()
+        : IndexedStack(
+            index: selectedIndex,
+            children: List<Widget>.generate(
+              4,
+              (index) => _buildPage(index, activeController),
+            ),
+          );
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F2EA),
+      appBar: AppBar(
+        title: Text(activeController == null ? 'Garden Planner' : title),
+        centerTitle: false,
+        backgroundColor: const Color(0xFFF7F2EA),
+        surfaceTintColor: Colors.transparent,
+        actions: [
+          if (selectedPlantName != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Center(
+                child: Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(
+                    selectedPlantName!,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          if (activeController != null && selectedIndex == 2)
+            IconButton(
+              tooltip: 'Save',
+              onPressed: saving ? null : () => _saveProject(),
+              icon: saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+            ),
+        ],
+      ),
+      body: SafeArea(child: body),
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
-        onDestinationSelected: _setTab,
+        onDestinationSelected: _bootstrapAndOpen,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.yard_outlined),
@@ -239,28 +357,5 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
         ],
       ),
     );
-  }
-}
-
-class _PortStatusPage extends StatelessWidget {
-  const _PortStatusPage({
-    required this.statusMessage,
-    required this.selectedPlantName,
-    required this.bedCount,
-    required this.onOpenPlanner,
-    required this.onOpenPlants,
-    required this.onOpenDesigner,
-  });
-
-  final String statusMessage;
-  final String? selectedPlantName;
-  final int bedCount;
-  final VoidCallback onOpenPlanner;
-  final VoidCallback onOpenPlants;
-  final VoidCallback onOpenDesigner;
-
-  @override
-  Widget build(BuildContext context) {
-    return const FruitTreeMapView();
   }
 }

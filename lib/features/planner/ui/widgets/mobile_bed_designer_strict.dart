@@ -124,12 +124,14 @@ class MobileBedDesigner extends StatefulWidget {
     required this.controller,
     required this.selectedPlantName,
     required this.onPickPlant,
+    required this.onProjectChanged,
     required this.onSave,
   });
 
   final GardenController controller;
   final String? selectedPlantName;
   final VoidCallback onPickPlant;
+  final VoidCallback onProjectChanged;
   final VoidCallback onSave;
 
   @override
@@ -177,6 +179,7 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
 
     controller.project = controller.project.copyWith(beds: beds);
     controller.selectBed(updatedBed.id);
+    widget.onProjectChanged();
 
     setState(() {});
   }
@@ -731,7 +734,7 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '${width.toStringAsFixed(1)}m × ${height.toStringAsFixed(1)}m',
+                      '${width.toStringAsFixed(1)}m Ã— ${height.toStringAsFixed(1)}m',
                     ),
                     Slider(
                       value: width.clamp(0.5, 12.0),
@@ -917,8 +920,8 @@ class _DesignerHeader extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '$bedName\n${bed.width.toStringAsFixed(1)}m × ${bed.height.toStringAsFixed(1)}m'
-                  '${plantName.isEmpty ? '' : ' • $plantName'}',
+                  '$bedName\n${bed.width.toStringAsFixed(1)}m Ã— ${bed.height.toStringAsFixed(1)}m'
+                  '${plantName.isEmpty ? '' : ' â€¢ $plantName'}',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w800),
@@ -1459,7 +1462,7 @@ class _BrushCard extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '$crop\nSpacing: ${(spacing * 100).round()}cm • 0/$slotCount slots • $mode',
+                '$crop\nSpacing: ${(spacing * 100).round()}cm â€¢ 0/$slotCount slots â€¢ $mode',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w800),
