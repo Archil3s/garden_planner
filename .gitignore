@@ -166,3 +166,14 @@ GoogleService-Info.plist
 *.fast_start_backup_*
 *.lazy_tabs_backup_*
 *.low_jank_backup_*
+
+# Root-level temporary scripts
+/*.ps1
+/*.bat
+/*.cmd
+/*.sh
+/*.py
+
+# Keep organized scripts allowed
+!/tools/
+!/tools/scripts/
