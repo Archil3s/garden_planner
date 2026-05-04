@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -1496,7 +1496,7 @@ class _CompactDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
-      value: values.contains(value) ? value : values.first,
+      initialValue: values.contains(value) ? value : values.first,
       isExpanded: true,
       decoration: InputDecoration(
         labelText: label,
