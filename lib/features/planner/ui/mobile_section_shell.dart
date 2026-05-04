@@ -23,6 +23,8 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   GardenController? controller;
 
   int selectedIndex = 2;
+  int renderedIndex = 2;
+  bool switchingSections = false;
   bool bootstrapping = false;
   bool saving = false;
 
@@ -66,59 +68,65 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   }
 
   Future<void> _bootstrapAndOpen(int index) async {
-    if (controller != null) {
-      if (selectedIndex == index && openedTabs.contains(index)) return;
-
-      setState(() {
-        selectedIndex = index;
-        openedTabs.add(index);
-      });
-      return;
-    }
-
-    if (bootstrapping) {
-      setState(() {
-        selectedIndex = index;
-        openedTabs.add(index);
-      });
+    if (selectedIndex == index &&
+        renderedIndex == index &&
+        controller != null &&
+        !switchingSections) {
       return;
     }
 
     setState(() {
-      bootstrapping = true;
       selectedIndex = index;
-      openedTabs.add(index);
+      switchingSections = true;
     });
 
-    final nextController = GardenController();
-    nextController.addListener(_controllerChanged);
+    // Let the navigation bar selection paint before building a heavy section.
+    await Future<void>.delayed(const Duration(milliseconds: 16));
 
-    controller = nextController;
+    while (bootstrapping && controller == null && mounted) {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
 
-    try {
-      final saved = await storage.loadProject().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => null,
-      );
+    var activeController = controller;
 
-      if (saved != null) {
-        nextController.project = saved;
-        statusMessage = 'Saved project loaded.';
-      } else {
-        statusMessage = 'Demo project loaded.';
+    if (activeController == null) {
+      if (!mounted) return;
+
+      setState(() {
+        bootstrapping = true;
+      });
+
+      final nextController = GardenController();
+      nextController.addListener(_controllerChanged);
+      controller = nextController;
+
+      try {
+        final saved = await storage.loadProject().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => null,
+        );
+
+        if (saved != null) {
+          nextController.project = saved;
+          statusMessage = 'Saved project loaded.';
+        } else {
+          statusMessage = 'Demo project loaded.';
+        }
+
+        if (nextController.selectedBed == null &&
+            nextController.beds.isNotEmpty) {
+          nextController.selectBed(nextController.beds.first.id);
+        }
+      } catch (_) {
+        statusMessage = 'Demo project loaded. Saved project skipped.';
+
+        if (nextController.selectedBed == null &&
+            nextController.beds.isNotEmpty) {
+          nextController.selectBed(nextController.beds.first.id);
+        }
       }
 
-      if (nextController.selectedBed == null &&
-          nextController.beds.isNotEmpty) {
-        nextController.selectBed(nextController.beds.first.id);
-      }
-    } catch (_) {
-      statusMessage = 'Demo project loaded. Saved project skipped.';
-
-      if (nextController.selectedBed == null &&
-          nextController.beds.isNotEmpty) {
-        nextController.selectBed(nextController.beds.first.id);
-      }
+      activeController = nextController;
     }
 
     if (!mounted) return;
@@ -126,7 +134,9 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     setState(() {
       bootstrapping = false;
       selectedIndex = index;
+      renderedIndex = index;
       openedTabs.add(index);
+      switchingSections = false;
     });
   }
 
@@ -286,18 +296,41 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     );
   }
 
+  Widget _sectionLoading() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Opening $title...',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final activeController = controller;
 
     final body = activeController == null
         ? _startupBody()
-        : IndexedStack(
-            index: selectedIndex,
-            children: List<Widget>.generate(
-              4,
-              (index) =>
-                  RepaintBoundary(child: _buildPage(index, activeController)),
+        : switchingSections
+        ? _sectionLoading()
+        : RepaintBoundary(
+            child: KeyedSubtree(
+              key: ValueKey<int>(renderedIndex),
+              child: _buildPage(renderedIndex, activeController),
             ),
           );
 
