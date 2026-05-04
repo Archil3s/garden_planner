@@ -217,7 +217,7 @@ class _PlantCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10),
               alignment: Alignment.centerLeft,
               color: plant.harvestSafe
-                  ? Colors.green.withOpacity(0.12)
+                  ? Colors.green.withValues(alpha: 0.12)
                   : Theme.of(context).colorScheme.surfaceContainerHighest,
               child: Row(
                 children: [
