@@ -1,17 +1,32 @@
-# garden_planner
+﻿# Garden Planner
 
-A new Flutter project.
+Flutter garden planning app.
 
-## Getting Started
+## Project structure
 
-This project is a starting point for a Flutter application.
+lib/ - Main Dart source code
+assets/ - App assets
+android/ - Android platform project
+ios/ - iOS platform project
+web/ - Web platform project
+test/ - Flutter tests
+docs/ - Project notes and reports
+tools/ - Local developer scripts
 
-A few resources to get you started if this is your first Flutter project:
+## Setup
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+flutter pub get
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Run
+
+flutter run
+
+## Analyze
+
+flutter analyze
+
+## Git workflow
+
+Use main for stable code. Create branches for features and fixes.
+
+Generated files, backups, snapshots, debug output, and temporary reports should not be committed at the repository root.

@@ -111,3 +111,58 @@ key.properties
 
 # Local DevTools settings
 /devtools_options.yaml
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Android/iOS local files
+android/local.properties
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# Editor/system files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.jks
+key.properties
+google-services.json
+GoogleService-Info.plist
+
+# Local backups/snapshots/debug output
+/backups/
+/copy_this_snapshot/
+/project_snapshots/
+/debug_output/
+
+# Root-level temporary reports/debug files
+/*.txt
+/*.bak
+/*.html
+/*REPORT*.txt
+/analyze_*.txt
+/fix_*.txt
+/mobile_*.txt
+/plant_*.txt
+/project_scope*.txt
+/project-scope*.txt
+/project_tree*.txt
+/*_dump.txt
+/*_error*.txt
+
+# Local backup files
+*.autosave_backup_*
+*.fast_start_backup_*
+*.lazy_tabs_backup_*
+*.low_jank_backup_*

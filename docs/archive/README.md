@@ -2,4 +2,4 @@
 
 Local backup and snapshot folders are intentionally not tracked in Git.
 
-Git history should be used for source snapshots. Large or temporary backup folders should stay local.
+Use Git commits and branches for source snapshots. Large or temporary backup folders should stay local.
