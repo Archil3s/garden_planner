@@ -58,3 +58,56 @@ app.*.map.json
 
 # Debug/generated output
 debug_output/
+
+.packages
+
+# Android/iOS local files
+android/local.properties
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# Editor/system files
+Thumbs.db
+
+# Secrets
+.env
+*.jks
+key.properties
+
+
+
+# Root-level temporary reports/debug notes
+/analyze_*.txt
+/comprehensive_*.txt
+/fix_*.txt
+/mobile_*.txt
+/plant_*.txt
+/*_report*.txt
+/*_error*.txt
+/*_dump.txt
+/plant_icons_v.html
+/devtools_options.yaml
+
+# Local backups/snapshots
+/backups/
+/copy_this_snapshot/
+/project_snapshots/
+/debug_output/
+
+# Root-level temporary reports/debug files
+/*.txt
+/*.bak
+/*.html
+/*REPORT*.txt
+/analyze_*.txt
+/fix_*.txt
+/mobile_*.txt
+/plant_*.txt
+/project_scope*.txt
+/project-scope*.txt
+/project_tree*.txt
+/*_dump.txt
+/*_error*.txt
+
+# Local DevTools settings
+/devtools_options.yaml
