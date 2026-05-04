@@ -1,0 +1,55 @@
+﻿Garden Planner Development Report
+Generated: 20260504_225559
+
+Branch:
+chore/instant-tab-shell-rehaul
+
+Git Status:
+----------
+On branch chore/instant-tab-shell-rehaul
+Your branch is up to date with 'origin/chore/instant-tab-shell-rehaul'.
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	local_backups/
+
+nothing added to commit but untracked files present (use "git add" to track)
+
+Git Diff:
+---------
+
+Flutter Analyze:
+----------------
+Analyzing garden_planner...                                     
+
+warning - The declaration '_snapCropBlockCoordinate' isn't referenced - lib\features\planner\controller\garden_controller.dart:1422:10 - unused_element
+warning - The declaration '_snapCropBlockSize' isn't referenced - lib\features\planner\controller\garden_controller.dart:1436:10 - unused_element
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\garden_screen.dart:220:34 - deprecated_member_use
+warning - The value of the field 'emojiFontFallback' isn't used - lib\features\planner\ui\widgets\draggable_crop_block.dart:341:29 - unused_field
+warning - The value of the local variable 'emoji' isn't used - lib\features\planner\ui\widgets\draggable_crop_block.dart:1140:11 - unused_local_variable
+warning - The value of the local variable 'seasonStatus' isn't used - lib\features\planner\ui\widgets\fruit_tree_map_view.dart:234:11 - unused_local_variable
+warning - The value of the local variable 'harvestWindow' isn't used - lib\features\planner\ui\widgets\fruit_tree_map_view.dart:235:11 - unused_local_variable
+warning - The value of the local variable 'seasonStatus' isn't used - lib\features\planner\ui\widgets\fruit_tree_map_view.dart:1029:11 - unused_local_variable
+warning - The value of the local variable 'harvestWindow' isn't used - lib\features\planner\ui\widgets\fruit_tree_map_view.dart:1030:11 - unused_local_variable
+warning - The declaration '_SeasonHint' isn't referenced - lib\features\planner\ui\widgets\fruit_tree_map_view.dart:1307:7 - unused_element
+warning - The value of the field 'latitude' isn't used - lib\features\planner\ui\widgets\live_soil_temp_planting_guide.dart:18:23 - unused_field
+warning - The value of the field 'longitude' isn't used - lib\features\planner\ui\widgets\live_soil_temp_planting_guide.dart:19:23 - unused_field
+warning - The declaration '_clearHighlight' isn't referenced - lib\features\planner\ui\widgets\seedlings_view.dart:413:8 - unused_element
+warning - The declaration '_resolveSeedCatalogItem' isn't referenced - lib\features\planner\ui\widgets\seedlings_view.dart:421:19 - unused_element
+warning - The declaration '_SeedlingsHeader' isn't referenced - lib\features\planner\ui\widgets\seedlings_view.dart:1554:7 - unused_element
+warning - The value of the local variable 'germinationStart' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2221:11 - unused_local_variable
+warning - The value of the local variable 'germinationEnd' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2224:11 - unused_local_variable
+warning - The value of the local variable 'transplantStart' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2227:11 - unused_local_variable
+warning - The value of the local variable 'transplantEnd' isn't used - lib\features\planner\ui\widgets\seedlings_view.dart:2230:11 - unused_local_variable
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:1141:22 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:1143:41 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:1170:51 - deprecated_member_use
+warning - The declaration '_BedFertilityPanel' isn't referenced - lib\features\planner\ui\widgets\soil_water_demand_panel.dart:2299:7 - unused_element
+
+flutter : 23 issues found. (ran in 4.7s)
+At line:1 char:1
++ flutter analyze 2>&1 | Tee-Object -FilePath $analyzeFile
++ ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (23 issues found. (ran in 4.7s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

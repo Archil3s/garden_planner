@@ -20,38 +20,53 @@ class MobileSectionShell extends StatefulWidget {
 class _MobileSectionShellState extends State<MobileSectionShell> {
   final ProjectStorageService storage = ProjectStorageService();
 
-  GardenController? controller;
+  late final GardenController controller;
 
   int selectedIndex = 2;
   int renderedIndex = 2;
 
-  bool loadingProject = true;
+  bool loadingSavedProject = false;
   bool saving = false;
 
   Timer? autosaveTimer;
+  Timer? renderTimer;
 
   String? selectedPlantName;
-  String statusMessage = 'Loading project...';
+  String statusMessage = 'Ready.';
 
   @override
   void initState() {
     super.initState();
+
+    controller = GardenController();
+    controller.addListener(_controllerChanged);
+    _selectDefaultBed();
+
     PlantingSelectionBridge.pendingPlant.addListener(_syncPendingPlant);
-    unawaited(_loadController());
+
+    // Show the app immediately. Saved data loads in the background.
+    unawaited(_loadSavedProjectInBackground());
   }
 
   @override
   void dispose() {
     autosaveTimer?.cancel();
+    renderTimer?.cancel();
     PlantingSelectionBridge.pendingPlant.removeListener(_syncPendingPlant);
-    controller?.removeListener(_controllerChanged);
-    controller?.dispose();
+    controller.removeListener(_controllerChanged);
+    controller.dispose();
     super.dispose();
   }
 
   void _controllerChanged() {
     if (!mounted) return;
     setState(() {});
+  }
+
+  void _selectDefaultBed() {
+    if (controller.selectedBed == null && controller.beds.isNotEmpty) {
+      controller.selectBed(controller.beds.first.id);
+    }
   }
 
   void _syncPendingPlant() {
@@ -66,52 +81,47 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     });
   }
 
-  Future<void> _loadController() async {
-    if (controller != null) return;
+  Future<void> _loadSavedProjectInBackground() async {
+    if (loadingSavedProject) return;
 
     setState(() {
-      loadingProject = true;
+      loadingSavedProject = true;
+      statusMessage = 'Loading saved project...';
     });
-
-    final nextController = GardenController();
-    nextController.addListener(_controllerChanged);
 
     try {
       final saved = await storage.loadProject().timeout(
-        const Duration(seconds: 2),
+        const Duration(milliseconds: 900),
         onTimeout: () => null,
       );
 
-      if (saved != null) {
-        nextController.project = saved;
-        statusMessage = 'Saved project loaded.';
-      } else {
-        statusMessage = 'Demo project loaded.';
-      }
+      if (!mounted) return;
 
-      if (nextController.selectedBed == null &&
-          nextController.beds.isNotEmpty) {
-        nextController.selectBed(nextController.beds.first.id);
+      if (saved != null) {
+        controller.project = saved;
+        _selectDefaultBed();
+
+        setState(() {
+          statusMessage = 'Saved project loaded.';
+        });
+      } else {
+        setState(() {
+          statusMessage = 'Demo project loaded.';
+        });
       }
     } catch (_) {
-      statusMessage = 'Demo project loaded. Saved project skipped.';
+      if (!mounted) return;
 
-      if (nextController.selectedBed == null &&
-          nextController.beds.isNotEmpty) {
-        nextController.selectBed(nextController.beds.first.id);
+      setState(() {
+        statusMessage = 'Demo project loaded. Saved project skipped.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          loadingSavedProject = false;
+        });
       }
     }
-
-    if (!mounted) {
-      nextController.dispose();
-      return;
-    }
-
-    setState(() {
-      controller = nextController;
-      loadingProject = false;
-      renderedIndex = selectedIndex;
-    });
   }
 
   void _openSection(int index) {
@@ -121,13 +131,9 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
       selectedIndex = index;
     });
 
-    if (controller == null || loadingProject) {
-      unawaited(_loadController());
-      return;
-    }
-
-    // Let the custom tab bar paint immediately, then build the heavy page.
-    Timer.run(() {
+    // Paint the selected tab first. Build the heavy page on the next event turn.
+    renderTimer?.cancel();
+    renderTimer = Timer(Duration.zero, () {
       if (!mounted) return;
       if (selectedIndex != index) return;
 
@@ -138,15 +144,14 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   }
 
   Future<void> _saveProject({bool showSnackBar = true}) async {
-    final activeController = controller;
-    if (activeController == null || saving) return;
+    if (saving) return;
 
     setState(() {
       saving = true;
     });
 
     try {
-      await storage.saveProject(activeController.project);
+      await storage.saveProject(controller.project);
 
       if (!mounted) return;
 
@@ -178,7 +183,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
 
   void _scheduleAutosave() {
     autosaveTimer?.cancel();
-    autosaveTimer = Timer(const Duration(milliseconds: 1200), () {
+    autosaveTimer = Timer(const Duration(milliseconds: 1400), () {
       unawaited(_saveProject(showSnackBar: false));
     });
   }
@@ -186,9 +191,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   void _choosePlant(String cropName) {
     final cleanName = cropName.trim();
 
-    if (cleanName.isEmpty) {
-      return;
-    }
+    if (cleanName.isEmpty) return;
 
     PlantingSelectionBridge.selectPlant(cleanName);
 
@@ -201,7 +204,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$cleanName selected. Draw inside the bed.'),
-        duration: const Duration(seconds: 2),
+        duration: const Duration(milliseconds: 1100),
       ),
     );
   }
@@ -216,12 +219,12 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     };
   }
 
-  Widget _buildPage(int index, GardenController activeController) {
+  Widget _buildPage(int index) {
     return switch (index) {
       0 => const GardenScreen(),
       1 => PlantInfoLibraryView(onPlantChosen: _choosePlant),
       2 => MobileBedDesigner(
-        controller: activeController,
+        controller: controller,
         selectedPlantName: selectedPlantName,
         onPickPlant: () => _openSection(1),
         onProjectChanged: _scheduleAutosave,
@@ -232,63 +235,28 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     };
   }
 
-  Widget _loadingBody() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Card(
-            elevation: 0,
-            color: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(22),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    statusMessage,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final activeController = controller;
-
-    final body = activeController == null || loadingProject
-        ? _loadingBody()
-        : RepaintBoundary(
-            child: KeyedSubtree(
-              key: ValueKey<int>(renderedIndex),
-              child: _buildPage(renderedIndex, activeController),
-            ),
-          );
+    final body = RepaintBoundary(
+      child: KeyedSubtree(
+        key: ValueKey<int>(renderedIndex),
+        child: _buildPage(renderedIndex),
+      ),
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F2EA),
       appBar: AppBar(
-        title: Text(activeController == null ? 'Garden Planner' : title),
+        title: Text(title),
         centerTitle: false,
         backgroundColor: const Color(0xFFF7F2EA),
         surfaceTintColor: Colors.transparent,
+        bottom: loadingSavedProject
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(2),
+                child: LinearProgressIndicator(minHeight: 2),
+              )
+            : null,
         actions: [
           if (selectedPlantName != null)
             Padding(
@@ -303,7 +271,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
                 ),
               ),
             ),
-          if (activeController != null && selectedIndex == 2)
+          if (selectedIndex == 2)
             IconButton(
               tooltip: 'Save',
               onPressed: saving ? null : () => _saveProject(),
