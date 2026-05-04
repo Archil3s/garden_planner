@@ -1905,8 +1905,10 @@ _HarvestInfo _harvestInfoForFruit(String type) {
     ),
 
     'blueberry' => const _HarvestInfo(months: [12, 1, 2], label: 'Decâ€“Feb'),
-    'blackberry' ||
-    'raspberry' => const _HarvestInfo(months: [12, 1, 2, 3], label: 'Decâ€“Mar'),
+    'blackberry' || 'raspberry' => const _HarvestInfo(
+      months: [12, 1, 2, 3],
+      label: 'Decâ€“Mar',
+    ),
     'boysenberry' ||
     'gooseberry' ||
     'currant' => const _HarvestInfo(months: [11, 12, 1], label: 'Novâ€“Jan'),
@@ -2021,4 +2023,3 @@ double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
 double _degreesToRadians(double degrees) {
   return degrees * math.pi / 180.0;
 }
-
