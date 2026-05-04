@@ -163,7 +163,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
     return bed.name.trim().isEmpty ? 'Bed ${bed.number}' : bed.name.trim();
   }
 
-  void _replaceBed(Bed updatedBed, {bool trackUndo = true}) {
+  void _replaceBed(
+    Bed updatedBed, {
+    bool trackUndo = true,
+    bool notifyProjectChanged = true,
+  }) {
     final index = controller.beds.indexWhere((bed) => bed.id == updatedBed.id);
     if (index == -1) return;
 
@@ -179,7 +183,9 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
 
     controller.project = controller.project.copyWith(beds: beds);
     controller.selectBed(updatedBed.id);
-    widget.onProjectChanged();
+    if (notifyProjectChanged) {
+      widget.onProjectChanged();
+    }
 
     setState(() {});
   }
@@ -345,10 +351,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       final otherRadius = otherSpacing / 2;
 
       final requiredDistance = radius + otherRadius;
+      final requiredDistanceSquared = requiredDistance * requiredDistance;
       final dx = placement.x - x;
       final dy = placement.y - y;
 
-      if (math.sqrt(dx * dx + dy * dy) < requiredDistance) {
+      if (dx * dx + dy * dy < requiredDistanceSquared) {
         return true;
       }
     }
@@ -379,10 +386,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       final otherRadius = otherSpacing / 2;
 
       final requiredDistance = radius + otherRadius;
+      final requiredDistanceSquared = requiredDistance * requiredDistance;
       final dx = placement.x - x;
       final dy = placement.y - y;
 
-      if (math.sqrt(dx * dx + dy * dy) < requiredDistance) {
+      if (dx * dx + dy * dy < requiredDistanceSquared) {
         return true;
       }
     }
@@ -396,10 +404,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       final otherRadius = otherSpacing / 2;
 
       final requiredDistance = radius + otherRadius;
+      final requiredDistanceSquared = requiredDistance * requiredDistance;
       final dx = block.x - x;
       final dy = block.y - y;
 
-      if (math.sqrt(dx * dx + dy * dy) < requiredDistance) {
+      if (dx * dx + dy * dy < requiredDistanceSquared) {
         return true;
       }
     }
@@ -457,8 +466,14 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
   }
 
   void _handlePointerEnd() {
+    final wasMoving = movingPlacementId != null;
+
     movingPlacementId = null;
     strokeSlots.clear();
+
+    if (wasMoving) {
+      widget.onProjectChanged();
+    }
   }
 
   void _plantAt({
@@ -554,7 +569,11 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
       y: slot.dy,
     );
 
-    _replaceBed(bed.copyWith(cropPlacements: placements), trackUndo: false);
+    _replaceBed(
+      bed.copyWith(cropPlacements: placements),
+      trackUndo: false,
+      notifyProjectChanged: false,
+    );
   }
 
   void _eraseAt({
@@ -708,6 +727,299 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
     );
   }
 
+  int _slotCapacityForPlant({required Bed bed, required String cropName}) {
+    if (!_strictFitsBed(cropName: cropName, bed: bed)) return 0;
+
+    final spacing = _strictSpacingMeters(cropName);
+    final radius = spacing / 2;
+
+    var count = 0;
+
+    for (double y = radius; y <= bed.height - radius + 0.0001; y += spacing) {
+      for (double x = radius; x <= bed.width - radius + 0.0001; x += spacing) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  int _usedSlotCountForPlant({required Bed bed, required String cropName}) {
+    final target = cropName.trim().toLowerCase();
+    if (target.isEmpty) return 0;
+
+    var count = 0;
+
+    for (final placement in bed.cropPlacements) {
+      if (placement.cropName.trim().toLowerCase() == target) {
+        count += 1;
+      }
+    }
+
+    for (final block in bed.cropBlocks) {
+      if (block.cropName.trim().toLowerCase() == target) {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  void _autoFillSelectedBed() {
+    final bed = activeBed;
+    if (bed == null) return;
+
+    if (!hasPlant) {
+      widget.onPickPlant();
+      return;
+    }
+
+    final cropName = activePlant;
+
+    if (!_strictFitsBed(cropName: cropName, bed: bed)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$cropName does not fit in this bed.')),
+      );
+      return;
+    }
+
+    final spacing = _strictSpacingMeters(cropName);
+    final radius = spacing / 2;
+    final nextPlacements = [...bed.cropPlacements];
+    final occupied = <String>{
+      for (final placement in bed.cropPlacements)
+        _slotKey(
+          bedId: bed.id,
+          cropName: placement.cropName,
+          x: placement.x,
+          y: placement.y,
+        ),
+    };
+
+    var added = 0;
+    final maxAdded = 350;
+
+    for (double y = radius; y <= bed.height - radius + 0.0001; y += spacing) {
+      for (double x = radius; x <= bed.width - radius + 0.0001; x += spacing) {
+        if (added >= maxAdded) break;
+
+        final slotKey = _slotKey(bedId: bed.id, cropName: cropName, x: x, y: y);
+
+        if (occupied.contains(slotKey)) continue;
+
+        if (_blockedByBed(
+          bed: bed.copyWith(cropPlacements: nextPlacements),
+          cropName: cropName,
+          x: x,
+          y: y,
+        )) {
+          continue;
+        }
+
+        occupied.add(slotKey);
+
+        nextPlacements.add(
+          CropPlacement(
+            id: 'autofill-${DateTime.now().microsecondsSinceEpoch}-$added',
+            cropName: cropName,
+            x: x,
+            y: y,
+          ),
+        );
+
+        added += 1;
+      }
+
+      if (added >= maxAdded) break;
+    }
+
+    if (added == 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No open $cropName slots found.')));
+      return;
+    }
+
+    final cropExists = bed.crops
+        .map((crop) => crop.trim().toLowerCase())
+        .contains(cropName.toLowerCase());
+
+    final updated = bed.copyWith(
+      crops: cropExists ? bed.crops : [...bed.crops, cropName],
+      cropPlacements: nextPlacements,
+    );
+
+    _replaceBed(updated);
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Added $added $cropName plants.')));
+  }
+
+  void _clearActivePlantFromBed() {
+    final bed = activeBed;
+    if (bed == null || !hasPlant) return;
+
+    final target = activePlant.toLowerCase();
+
+    final updatedPlacements = bed.cropPlacements
+        .where((placement) => placement.cropName.trim().toLowerCase() != target)
+        .toList();
+
+    final updatedBlocks = bed.cropBlocks
+        .where((block) => block.cropName.trim().toLowerCase() != target)
+        .toList();
+
+    final updatedCrops = bed.crops
+        .where((crop) => crop.trim().toLowerCase() != target)
+        .toList();
+
+    if (updatedPlacements.length == bed.cropPlacements.length &&
+        updatedBlocks.length == bed.cropBlocks.length &&
+        updatedCrops.length == bed.crops.length) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No $activePlant found in this bed.')),
+      );
+      return;
+    }
+
+    _replaceBed(
+      bed.copyWith(
+        crops: updatedCrops,
+        cropPlacements: updatedPlacements,
+        cropBlocks: updatedBlocks,
+      ),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Removed $activePlant from this bed.')),
+    );
+  }
+
+  void _openPlannerProSheet(Bed bed) {
+    final cropName = activePlant;
+    final hasActive = cropName.isNotEmpty;
+    final spacing = hasActive ? _strictSpacingMeters(cropName) : 0.0;
+    final capacity = hasActive
+        ? _slotCapacityForPlant(bed: bed, cropName: cropName)
+        : 0;
+    final used = hasActive
+        ? _usedSlotCountForPlant(bed: bed, cropName: cropName)
+        : 0;
+    final openSlots = math.max(0, capacity - used);
+    final totalPlaced = bed.cropPlacements.length + bed.cropBlocks.length;
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFFFFFBF4),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Row(
+                  children: [
+                    const CircleAvatar(child: Icon(Icons.auto_awesome)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Bed Planner Pro',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _bedTitle(bed),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 14),
+                _PlannerProStatGrid(
+                  stats: [
+                    _PlannerProStat(
+                      label: 'Bed size',
+                      value:
+                          '${bed.width.toStringAsFixed(1)}m x ${bed.height.toStringAsFixed(1)}m',
+                    ),
+                    _PlannerProStat(
+                      label: 'Total placed',
+                      value: totalPlaced.toString(),
+                    ),
+                    _PlannerProStat(
+                      label: 'Active plant',
+                      value: hasActive ? cropName : 'None',
+                    ),
+                    _PlannerProStat(
+                      label: 'Spacing',
+                      value: hasActive
+                          ? '${(spacing * 100).round()}cm'
+                          : 'Pick plant',
+                    ),
+                    _PlannerProStat(
+                      label: 'Capacity',
+                      value: hasActive ? capacity.toString() : 'Pick plant',
+                    ),
+                    _PlannerProStat(
+                      label: 'Open slots',
+                      value: hasActive ? openSlots.toString() : 'Pick plant',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _autoFillSelectedBed();
+                  },
+                  icon: const Icon(Icons.grid_on),
+                  label: const Text('Auto-fill active plant'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _clearActivePlantFromBed();
+                  },
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: const Text('Clear active plant from bed'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _cleanSpacing();
+                  },
+                  icon: const Icon(Icons.rule),
+                  label: const Text('Clean spacing conflicts'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _openSizeSheet(bed);
+                  },
+                  icon: const Icon(Icons.straighten),
+                  label: const Text('Edit bed size'),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Tip: pick a plant first, then use Auto-fill to populate the current bed with strict spacing.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _openSizeSheet(Bed bed) {
     double width = bed.width;
     double height = bed.height;
@@ -810,6 +1122,7 @@ class _MobileBedDesignerState extends State<MobileBedDesigner> {
           plantName: activePlant,
           onPickPlant: widget.onPickPlant,
           onSize: () => _openSizeSheet(bed),
+          onPlannerPro: () => _openPlannerProSheet(bed),
           onSave: widget.onSave,
         ),
         Expanded(
@@ -894,6 +1207,7 @@ class _DesignerHeader extends StatelessWidget {
     required this.plantName,
     required this.onPickPlant,
     required this.onSize,
+    required this.onPlannerPro,
     required this.onSave,
   });
 
@@ -902,6 +1216,7 @@ class _DesignerHeader extends StatelessWidget {
   final String plantName;
   final VoidCallback onPickPlant;
   final VoidCallback onSize;
+  final VoidCallback onPlannerPro;
   final VoidCallback onSave;
 
   @override
@@ -933,11 +1248,19 @@ class _DesignerHeader extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               IconButton.outlined(
+                tooltip: 'Bed Planner Pro',
+                onPressed: onPlannerPro,
+                icon: const Icon(Icons.auto_awesome),
+              ),
+              const SizedBox(width: 6),
+              IconButton.outlined(
+                tooltip: 'Size',
                 onPressed: onSize,
                 icon: const Icon(Icons.straighten),
               ),
               const SizedBox(width: 6),
               IconButton.outlined(
+                tooltip: 'Save',
                 onPressed: onSave,
                 icon: const Icon(Icons.save_outlined),
               ),
@@ -1523,6 +1846,72 @@ class _ModePill extends StatelessWidget {
           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
         ),
       ),
+    );
+  }
+}
+
+class _PlannerProStat {
+  const _PlannerProStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+}
+
+class _PlannerProStatGrid extends StatelessWidget {
+  const _PlannerProStatGrid({required this.stats});
+
+  final List<_PlannerProStat> stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      itemCount: stats.length,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisExtent: 82,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+      ),
+      itemBuilder: (context, index) {
+        final stat = stats[index];
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stat.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  stat.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
