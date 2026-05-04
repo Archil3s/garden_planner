@@ -23,20 +23,21 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   GardenController? controller;
 
   int selectedIndex = 2;
-  bool bootstrapping = false;
+  int renderedIndex = 2;
+
+  bool loadingProject = true;
   bool saving = false;
 
   Timer? autosaveTimer;
 
-  final Set<int> openedTabs = <int>{};
-
   String? selectedPlantName;
-  String statusMessage = 'Ready.';
+  String statusMessage = 'Loading project...';
 
   @override
   void initState() {
     super.initState();
     PlantingSelectionBridge.pendingPlant.addListener(_syncPendingPlant);
+    unawaited(_loadController());
   }
 
   @override
@@ -65,29 +66,15 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     });
   }
 
-  Future<void> _bootstrapAndOpen(int index) async {
-    if (controller != null) {
-      setState(() {
-        selectedIndex = index;
-        openedTabs.add(index);
-      });
-      return;
-    }
-
-    if (bootstrapping) return;
+  Future<void> _loadController() async {
+    if (controller != null) return;
 
     setState(() {
-      bootstrapping = true;
-      selectedIndex = index;
+      loadingProject = true;
     });
-
-    // Let Android draw the first frame before creating/loading the project.
-    await Future<void>.delayed(const Duration(milliseconds: 250));
 
     final nextController = GardenController();
     nextController.addListener(_controllerChanged);
-
-    controller = nextController;
 
     try {
       final saved = await storage.loadProject().timeout(
@@ -115,12 +102,38 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
       }
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      nextController.dispose();
+      return;
+    }
 
     setState(() {
-      bootstrapping = false;
+      controller = nextController;
+      loadingProject = false;
+      renderedIndex = selectedIndex;
+    });
+  }
+
+  void _openSection(int index) {
+    if (selectedIndex == index && renderedIndex == index) return;
+
+    setState(() {
       selectedIndex = index;
-      openedTabs.add(index);
+    });
+
+    if (controller == null || loadingProject) {
+      unawaited(_loadController());
+      return;
+    }
+
+    // Let the custom tab bar paint immediately, then build the heavy page.
+    Timer.run(() {
+      if (!mounted) return;
+      if (selectedIndex != index) return;
+
+      setState(() {
+        renderedIndex = index;
+      });
     });
   }
 
@@ -166,7 +179,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   void _scheduleAutosave() {
     autosaveTimer?.cancel();
     autosaveTimer = Timer(const Duration(milliseconds: 1200), () {
-      _saveProject(showSnackBar: false);
+      unawaited(_saveProject(showSnackBar: false));
     });
   }
 
@@ -183,7 +196,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
       selectedPlantName = cleanName;
     });
 
-    _bootstrapAndOpen(2);
+    _openSection(2);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -204,17 +217,13 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   }
 
   Widget _buildPage(int index, GardenController activeController) {
-    if (!openedTabs.contains(index)) {
-      return const SizedBox.shrink();
-    }
-
     return switch (index) {
       0 => const GardenScreen(),
       1 => PlantInfoLibraryView(onPlantChosen: _choosePlant),
       2 => MobileBedDesigner(
         controller: activeController,
         selectedPlantName: selectedPlantName,
-        onPickPlant: () => _bootstrapAndOpen(1),
+        onPickPlant: () => _openSection(1),
         onProjectChanged: _scheduleAutosave,
         onSave: () => _saveProject(),
       ),
@@ -223,7 +232,7 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
     };
   }
 
-  Widget _startupBody() {
+  Widget _loadingBody() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -239,37 +248,17 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
               padding: const EdgeInsets.all(22),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Garden Planner',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Open only the section you need. This keeps Android startup light.',
-                  ),
-                  const SizedBox(height: 18),
-                  FilledButton.icon(
-                    onPressed: bootstrapping
-                        ? null
-                        : () => _bootstrapAndOpen(2),
-                    icon: bootstrapping
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.brush_outlined),
-                    label: const Text('Open Bed Designer'),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: bootstrapping
-                        ? null
-                        : () => _bootstrapAndOpen(1),
-                    icon: const Icon(Icons.eco_outlined),
-                    label: const Text('Open Plants'),
+                  const SizedBox(height: 14),
+                  Text(
+                    statusMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ],
               ),
@@ -284,13 +273,12 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
   Widget build(BuildContext context) {
     final activeController = controller;
 
-    final body = activeController == null
-        ? _startupBody()
-        : IndexedStack(
-            index: selectedIndex,
-            children: List<Widget>.generate(
-              4,
-              (index) => _buildPage(index, activeController),
+    final body = activeController == null || loadingProject
+        ? _loadingBody()
+        : RepaintBoundary(
+            child: KeyedSubtree(
+              key: ValueKey<int>(renderedIndex),
+              child: _buildPage(renderedIndex, activeController),
             ),
           );
 
@@ -330,31 +318,141 @@ class _MobileSectionShellState extends State<MobileSectionShell> {
         ],
       ),
       body: SafeArea(child: body),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: _FastTabBar(
         selectedIndex: selectedIndex,
-        onDestinationSelected: _bootstrapAndOpen,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.yard_outlined),
-            selectedIcon: Icon(Icons.yard),
-            label: 'Planner',
+        onSelected: _openSection,
+      ),
+    );
+  }
+}
+
+class _FastTabBar extends StatelessWidget {
+  const _FastTabBar({required this.selectedIndex, required this.onSelected});
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  static const List<_FastTabItemData> items = [
+    _FastTabItemData(
+      icon: Icons.yard_outlined,
+      selectedIcon: Icons.yard,
+      label: 'Planner',
+    ),
+    _FastTabItemData(
+      icon: Icons.eco_outlined,
+      selectedIcon: Icons.eco,
+      label: 'Plants',
+    ),
+    _FastTabItemData(
+      icon: Icons.brush_outlined,
+      selectedIcon: Icons.brush,
+      label: 'Design',
+    ),
+    _FastTabItemData(
+      icon: Icons.map_outlined,
+      selectedIcon: Icons.map,
+      label: 'Fruit Scout',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return SafeArea(
+      top: false,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          border: Border(top: BorderSide(color: scheme.outlineVariant)),
+        ),
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            children: [
+              for (var index = 0; index < items.length; index++)
+                Expanded(
+                  child: _FastTabItem(
+                    data: items[index],
+                    selected: selectedIndex == index,
+                    onTap: () => onSelected(index),
+                  ),
+                ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.eco_outlined),
-            selectedIcon: Icon(Icons.eco),
-            label: 'Plants',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.brush_outlined),
-            selectedIcon: Icon(Icons.brush),
-            label: 'Design',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: 'Fruit Scout',
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FastTabItemData {
+  const _FastTabItemData({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+}
+
+class _FastTabItem extends StatelessWidget {
+  const _FastTabItem({
+    required this.data,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _FastTabItemData data;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = selected ? scheme.onPrimaryContainer : scheme.onSurface;
+    final background = selected ? scheme.primaryContainer : Colors.transparent;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: selected ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                child: Icon(
+                  selected ? data.selectedIcon : data.icon,
+                  color: foreground,
+                  size: 22,
+                ),
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              data.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
