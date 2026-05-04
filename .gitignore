@@ -55,3 +55,6 @@ app.*.map.json
 *.fast_start_backup_*
 *.lazy_tabs_backup_*
 *.low_jank_backup_*
+
+# Debug/generated output
+debug_output/
